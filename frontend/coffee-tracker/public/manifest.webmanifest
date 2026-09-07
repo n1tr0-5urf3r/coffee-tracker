@@ -1,0 +1,15 @@
+{
+  "name": "Coffee Tracker",
+  "short_name": "Coffee",
+  "description": "Log your coffee and tea consumption",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ea",
+  "theme_color": "#f7f3ea",
+  "icons": [{
+    "src": "/favicon.svg",
+    "sizes": "any",
+    "type": "image/svg+xml",
+    "purpose": "any maskable"
+  }]
+}

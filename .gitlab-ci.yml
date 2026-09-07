@@ -1,0 +1,115 @@
+stages:
+  - verify
+  - deploy
+  - sync
+
+variables:
+  CARGO_TERM_COLOR: always
+  DOCKERHUB_BACKEND_IMAGE: unituekn/coffee-tracker-backend
+  DOCKERHUB_FRONTEND_IMAGE: unituekn/coffee-tracker-frontend
+
+backend_verify:
+  stage: verify
+  image: rust:1.96.1-trixie
+  cache:
+    key: cargo-${CI_COMMIT_REF_SLUG}
+    paths:
+      - backend/target
+      - /usr/local/cargo/registry
+      - /usr/local/cargo/git
+  before_script:
+    - cd backend
+  script:
+    - cargo test
+    - cargo build --release
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  tags: [shared]
+
+frontend_verify:
+  stage: verify
+  image: node:22-trixie
+  cache:
+    key: npm-${CI_COMMIT_REF_SLUG}
+    paths:
+      - frontend/coffee-tracker/node_modules
+  before_script:
+    - cd frontend/coffee-tracker
+    - npm ci
+  script:
+    - npm run lint
+    - npm run test
+    - npm run build
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+  tags: [shared]
+
+backend_docker_publish:
+  stage: deploy
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - export IMAGE_LATEST="docker.io/${DOCKERHUB_BACKEND_IMAGE}:latest"
+    - export IMAGE_SHA="docker.io/${DOCKERHUB_BACKEND_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"unituekn\",\"password\":\"${DOCKERHUB_TOKEN}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}/backend"
+      --dockerfile "${CI_PROJECT_DIR}/backend/Dockerfile"
+      --destination "${IMAGE_LATEST}"
+      --destination "${IMAGE_SHA}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  tags: [shared]
+
+frontend_docker_publish:
+  stage: deploy
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: [""]
+  script:
+    - export IMAGE_LATEST="docker.io/${DOCKERHUB_FRONTEND_IMAGE}:latest"
+    - export IMAGE_SHA="docker.io/${DOCKERHUB_FRONTEND_IMAGE}:${CI_COMMIT_SHORT_SHA}"
+    - mkdir -p /kaniko/.docker
+    - |
+      echo "{\"auths\":{\"https://index.docker.io/v1/\":{\"username\":\"unituekn\",\"password\":\"${DOCKERHUB_TOKEN}\"}}}" > /kaniko/.docker/config.json
+    - /kaniko/executor
+      --context "${CI_PROJECT_DIR}/frontend/coffee-tracker"
+      --dockerfile "${CI_PROJECT_DIR}/frontend/coffee-tracker/Dockerfile"
+      --destination "${IMAGE_LATEST}"
+      --destination "${IMAGE_SHA}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  tags: [shared]
+
+github_sync:
+  stage: sync
+  image:
+    name: alpine/git:2.49.1
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0"
+  script:
+    - git remote add github "https://x-access-token:${GITHUB_PUSH_TOKEN}@github.com/n1tr0-5urf3r/coffee-tracker.git"
+    - |
+      export GIT_AUTHOR_NAME="GitLab CI"
+      export GIT_AUTHOR_EMAIL="gitlab-ci@users.noreply.github.com"
+      export GIT_COMMITTER_NAME="${GIT_AUTHOR_NAME}"
+      export GIT_COMMITTER_EMAIL="${GIT_AUTHOR_EMAIL}"
+      TREE="$(git write-tree)"
+      if git fetch github "${CI_DEFAULT_BRANCH}"; then
+        PARENT="$(git rev-parse FETCH_HEAD)"
+        SYNC_COMMIT="$(printf 'Sync from GitLab pipeline %s\n' "${CI_PIPELINE_ID}" | git commit-tree "${TREE}" -p "${PARENT}")"
+      else
+        SYNC_COMMIT="$(printf 'Initial public snapshot\n' | git commit-tree "${TREE}")"
+      fi
+      git push github "${SYNC_COMMIT}:refs/heads/${CI_DEFAULT_BRANCH}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  resource_group: github-sync
+  tags: [shared]

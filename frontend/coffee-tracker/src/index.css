@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap');
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Brand red lives here -- everything else is neutral so the red can pop. */
+  --color-primary: #c2284a;
+  --color-secondary: #a62c4d;
+  --color-accent: #e97991;
+
+  /* Neutral surfaces (light mode). */
+  --color-surface: #f7f3ea;
+  --color-blush: #e97991;
+  --color-rose-soft: #f4d9df;
+
+  /* Slate scale that we still call "berry" so existing classes stay valid. */
+  --color-berry-50: #fffaf0;
+  --color-berry-100: #eadfce;
+  --color-berry-700: #2c303a;
+  --color-berry-900: #161922;
+  --color-berry-950: #0d0f16;
+
+  /* Supporting accents. */
+  --color-mint: #44c7a4;
+  --color-sun: #ffd166;
+  --color-sky: #65c7f7;
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  --shadow-soft: 0 18px 45px rgb(15 23 42 / 12%);
+  --shadow-button: 0 5px 0 rgb(111 20 48 / 16%), 0 10px 22px rgb(111 20 48 / 12%);
+  --radius-4xl: 2rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+  background: #f7f3ea;
+}
+
+html.dark {
+  color-scheme: dark;
+  background: #0d0f16;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100svh;
+  margin: 0;
+  font-family: var(--font-sans);
+  color: #161922;
+  background: #f7f3ea;
+}
+
+.dark body {
+  color: #e9ebf1;
+  background: #0d0f16;
+}
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 4px solid #ffd166;
+  outline-offset: 4px;
+}
+
+::selection {
+  color: #ffffff;
+  background: #c2284a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payment reminder</title>
+</head>
+
+<body
+  style="margin:0;padding:0;background:#f5f4f2;color:#2a2a2a;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+    style="width:100%;background:#f5f4f2;">
+    <tr>
+      <td align="center" style="padding:24px;">
+        <table role="presentation" width="480" cellspacing="0" cellpadding="0" border="0"
+          style="width:100%;max-width:480px;background:#ffffff;border-radius:14px;border-top:4px solid #a51e37;box-shadow:0 10px 30px rgba(0,0,0,0.08);">
+          <tr>
+            <td align="center" style="padding:40px 36px;">
+              <span
+                style="display:inline-block;margin-bottom:20px;padding:6px 12px;border-radius:999px;background:#f7e9ec;color:#a51e37;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">Payment
+                reminder</span>
+              <h1 style="margin:0 0 14px;font-size:24px;line-height:1.3;color:#2a2a2a;">Hi {{display_name}},</h1>
+              <p style="margin:8px 0;color:#6b6b6b;font-size:16px;line-height:1.6;">Your {{app_name}} account
+                currently has an outstanding balance of</p>
+              <p style="margin:10px 0 24px;color:#a51e37;font-size:30px;font-weight:800;line-height:1.2;">{{amount}}</p>
+              <a href="{{payment_link}}"
+                style="display:inline-block;padding:13px 24px;border-radius:999px;background:#a51e37;color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;">Pay
+                now</a>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                style="width:100%;margin-top:24px;background:#f7e9ec;border:1px solid #e8bdc6;border-radius:12px;">
+                <tr>
+                  <td align="center" style="padding:16px 18px;">
+                    <div
+                      style="margin-bottom:5px;color:#a51e37;font-size:12px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;">
+                      Already paid?</div>
+                    <div style="color:#2a2a2a;font-size:16px;font-weight:700;line-height:1.5;">Please mark your debt as
+                      paid in the <a href="{{frontend_base_url}}" style="color:#a51e37;">{{app_name}}
+                        app</a>.</div>
+                  </td>
+                </tr>
+              </table>
+              <div
+                style="margin-top:28px;padding-top:20px;border-top:1px solid #ececec;color:#6b6b6b;font-size:12px;line-height:1.5;">
+                If the button does not work, open this link:<br>
+                <a href="{{payment_link}}" style="color:#a51e37;word-break:break-all;">{{payment_link}}</a>
+                <div style="margin-top:14px;font-weight:700;color:#2a2a2a;">{{app_name}}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+
+</html>

@@ -1,0 +1,1 @@
+{"beverages":[{"id":"coffee","name":"Coffee (Vollautomat)","price_cents":50,"caffeine_mg":90},{"id":"espresso_pads","name":"Espresso (pads)","price_cents":50,"caffeine_mg":90},{"id":"eis","name":"Eis","price_cents":50,"caffeine_mg":0},{"id":"tea","name":"Tea","price_cents":25,"caffeine_mg":0},{"id":"other","name":"Other","price_cents":100,"caffeine_mg":0}]}

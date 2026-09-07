@@ -1,0 +1,59 @@
+services:
+  frontend:
+    image: unituekn/coffee-tracker-frontend:latest
+    build:
+      context: ./frontend/coffee-tracker
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE:-Europe/Berlin}
+      API_BASE_URL: ${API_BASE_URL:-}
+      APP_NAME: ${APP_NAME:-Coffee Tracker}
+      ORGANIZATION_NAME: ${ORGANIZATION_NAME:-the community}
+      ORGANIZATION_SHORT_NAME: ${ORGANIZATION_SHORT_NAME:-Community}
+      STAFF_LABEL: ${STAFF_LABEL:-staff}
+      OIDC_LOGIN_LABEL: ${OIDC_LOGIN_LABEL:-Sign in with OpenID Connect}
+      LOGO_URL: ${LOGO_URL:-}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
+    ports:
+      - "3123:3123"
+    depends_on:
+      - backend
+    volumes:
+      - ${BRANDING_DIR:-./branding}:/app/dist/branding:ro
+
+  backend:
+    image: unituekn/coffee-tracker-backend:latest
+    build:
+      context: ./backend
+    restart: unless-stopped
+    ports:
+      - "3124:3124"
+    environment:
+      DATABASE_URL: sqlite:///data/coffee-tracker.db
+      APP_NAME: ${APP_NAME:-Coffee Tracker}
+      BIND_ADDR: ${BIND_ADDR:-0.0.0.0:3124}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      GITLAB_BASE_URL: ${GITLAB_BASE_URL:-https://gitlab.example.org}
+      GITLAB_OAUTH_CLIENT_ID: ${GITLAB_OAUTH_CLIENT_ID:-}
+      GITLAB_OAUTH_CLIENT_SECRET: ${GITLAB_OAUTH_CLIENT_SECRET:-}
+      GITLAB_OAUTH_SCOPES: ${GITLAB_OAUTH_SCOPES:-read_user read_api email}
+      AUTHENTIK_ISSUER_URL: ${AUTHENTIK_ISSUER_URL:-}
+      AUTHENTIK_OAUTH_CLIENT_ID: ${AUTHENTIK_OAUTH_CLIENT_ID:-}
+      AUTHENTIK_OAUTH_CLIENT_SECRET: ${AUTHENTIK_OAUTH_CLIENT_SECRET:-}
+      AUTHENTIK_OAUTH_SCOPES: ${AUTHENTIK_OAUTH_SCOPES:-openid email profile groups}
+      AUTH_ALLOWED_GROUPS: ${AUTH_ALLOWED_GROUPS:-coffee-users,coffee-admins}
+      AUTH_STAFF_GROUPS: ${AUTH_STAFF_GROUPS:-coffee-admins}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3123}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3123}
+      MATRIX_WEBHOOK_URL: ${MATRIX_WEBHOOK_URL:-}
+      MATTERMOST_WEBHOOK_URL: ${MATTERMOST_WEBHOOK_URL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-25}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURITY: ${SMTP_SECURITY:-none}
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      TZ: ${TIMEZONE:-Europe/Berlin}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./coffee_data:/data
