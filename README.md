@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/Rust-axum-b7410e?logo=rust" alt="Rust and axum">
   <img src="https://img.shields.io/badge/React-TypeScript-3178c6?logo=react" alt="React and TypeScript">
   <img src="https://img.shields.io/badge/storage-SQLite-0f80cc?logo=sqlite" alt="SQLite">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="AGPL-3.0-only license"></a>
 </p>
 
 <p align="center">
@@ -97,3 +98,13 @@ OAuth callback URLs are:
 https://your-coffee-host.example/api/v1/auth/gitlab/callback
 https://your-coffee-host.example/api/v1/auth/authentik/callback
 ```
+
+## Support the project
+
+If Coffee Tracker makes your coffee corner a little more fun, consider fueling the next round of improvements.
+
+<p align="center">
+  <a href="https://www.paypal.com/donate/?hosted_button_id=KXMYX49C6MLLN">
+    <img src="https://img.shields.io/badge/Fuel_the_next_feature-Donate_via_PayPal-0070ba?style=for-the-badge&amp;logo=paypal&amp;logoColor=white" alt="Donate via PayPal">
+  </a>
+</p>

@@ -16,6 +16,17 @@ export function AppFooter() {
       <p className="mt-1">
         Made with love and questionable vibe coding by Fabian, Codex, and Claude.
       </p>
+      <p className="mt-1">
+        © 2026 Fabian Ihle ·{' '}
+        <a
+          href={`${branding.githubUrl}/blob/master/LICENSE`}
+          target="_blank"
+          rel="noreferrer"
+          className="underline decoration-current/40 underline-offset-2 transition hover:text-primary dark:hover:text-blush"
+        >
+          AGPL-3.0-only
+        </a>
+      </p>
       <a
         href={branding.githubUrl}
         target="_blank"

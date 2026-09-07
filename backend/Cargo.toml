@@ -2,6 +2,8 @@
 name = "coffee-tracker"
 version = "1.4.0"
 edition = "2024"
+license = "AGPL-3.0-only"
+repository = "https://github.com/n1tr0-5urf3r/coffee-tracker"
 
 [dependencies]
 anyhow = "1.0.103"
