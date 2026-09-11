@@ -31,6 +31,6 @@ mod tests {
     #[tokio::test]
     async fn version_endpoint_uses_package_version() {
         let Json(response) = version().await;
-        assert_eq!(response.backend_version, "1.4.0");
+        assert_eq!(response.backend_version, "1.5.0");
     }
 }

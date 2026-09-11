@@ -3,17 +3,15 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   CirclePlus,
-  Coffee,
-  CupSoda,
-  IceCreamCone,
-  Leaf,
+  Gift,
   MousePointerClick,
+  Stamp,
   RotateCcw,
   WifiOff,
   X,
 } from 'lucide-react'
 import { api, ApiError, type Beverage, type ConsumptionResponse } from '../api/client'
-import { invalidateCoffeeData, useCatalog, useMe, useStats } from '../api/queries'
+import { invalidateCoffeeData, useCatalog, useMe, useStampCard, useStats } from '../api/queries'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { todayCountsByBeverage } from '../lib/stats'
@@ -22,6 +20,9 @@ import { queueLog } from '../lib/offlineQueue'
 import { useOfflineQueue } from '../hooks/useOfflineQueue'
 import { cn } from '../lib/cn'
 import { stockLabelForBeverage } from '../lib/stock'
+import { currentMonthKey } from '../lib/month'
+import { stampCardProgress, type StampProgress } from '../lib/stampCard'
+import { BeverageIcon } from '../lib/beverageIcons'
 import {
   compactBeverageName,
   primaryBeveragesFor,
@@ -154,14 +155,20 @@ export function LogPage() {
 
   const primaryBeverages = primaryBeveragesFor(beverages.data?.beverages ?? [])
   const otherBeverages = secondaryBeveragesFor(beverages.data?.beverages ?? [])
+  const stampCard = useStampCard(currentMonthKey()).data
+  const stampProgress = stampCard ? stampCardProgress(stampCard) : null
+  const nextIsFree = stampProgress?.nextIsFree ?? false
 
   return (
     <div>
       <PageHeader
         title={`Hi ${me?.user.display_name ?? 'there'}, ready?`}
       >
-        <div className="rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
-          Machine: {machineName}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 truncate rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
+            Machine: {machineName}
+          </div>
+          {stampProgress ? <StampProgressPill progress={stampProgress} /> : null}
         </div>
       </PageHeader>
 
@@ -179,6 +186,7 @@ export function LogPage() {
               disabled={logMutation.isPending || cooldownSeconds > 0}
               onClick={() => logMutation.mutate(beverage)}
               todayCount={todayCounts.get(beverage.id) ?? 0}
+              free={nextIsFree && beverage.price_cents > 0}
             />
           ))}
         </div>
@@ -192,6 +200,7 @@ export function LogPage() {
               beverage={beverage}
               disabled={logMutation.isPending || cooldownSeconds > 0}
               onClick={() => logMutation.mutate(beverage)}
+              free={nextIsFree && beverage.price_cents > 0}
             />
           ))}
         </div>
@@ -244,6 +253,56 @@ export function LogPage() {
         </Card>
       ) : null}
     </div>
+  )
+}
+
+function StampProgressPill({ progress }: { progress: StampProgress }) {
+  if (progress.nextIsFree) {
+    return (
+      <div className="flex items-center gap-2 rounded-full bg-mint px-4 py-2 text-sm font-black text-berry-950 shadow-soft">
+        <Gift className="size-4 shrink-0" aria-hidden="true" />
+        Next drink is free!
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
+      <Stamp className="size-4 shrink-0 text-primary dark:text-blush" aria-hidden="true" />
+      {progress.filled}/{progress.stampsPerCard} · {progress.remaining} to free
+    </div>
+  )
+}
+
+function PricePill({
+  priceCents,
+  free,
+  tone,
+}: {
+  priceCents: number
+  free: boolean
+  tone: 'solid' | 'soft'
+}) {
+  if (free) {
+    return (
+      <span className="flex items-center gap-1 rounded-full bg-mint px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-berry-950 sm:text-sm">
+        <Gift className="size-4 shrink-0" aria-hidden="true" />
+        Free
+      </span>
+    )
+  }
+
+  return (
+    <span
+      className={cn(
+        'rounded-full px-3 py-1 font-black',
+        tone === 'solid'
+          ? 'bg-primary text-sm text-white'
+          : 'bg-berry-100 text-xs text-berry-700 dark:bg-white/10 dark:text-berry-50',
+      )}
+    >
+      {(priceCents / 100).toFixed(2)} €
+    </span>
   )
 }
 
@@ -363,11 +422,13 @@ function PrimaryBeverageButton({
   disabled,
   onClick,
   todayCount,
+  free = false,
 }: {
   beverage: Beverage
   disabled: boolean
   onClick: () => void
   todayCount: number
+  free?: boolean
 }) {
   const displayName = compactBeverageName(beverage)
   return (
@@ -385,9 +446,7 @@ function PrimaryBeverageButton({
           <span className="text-[0.65rem] font-black uppercase tracking-[0.16em] text-primary dark:text-blush">
             {stockLabelForBeverage(beverage.id)}
           </span>
-          <span className="rounded-full bg-primary px-3 py-1 text-sm font-black text-white">
-            {(beverage.price_cents / 100).toFixed(2)} €
-          </span>
+          <PricePill priceCents={beverage.price_cents} free={free} tone="solid" />
         </div>
         <div className="flex min-w-0 items-end justify-between gap-3">
           <p className="min-w-0 break-words font-display text-xl font-black leading-tight sm:text-4xl">
@@ -418,19 +477,13 @@ function BeverageButton({
   beverage,
   disabled,
   onClick,
+  free = false,
 }: {
   beverage: Beverage
   disabled: boolean
   onClick: () => void
+  free?: boolean
 }) {
-  const Icon =
-    beverage.id === 'eis'
-      ? IceCreamCone
-      : beverage.id === 'tea'
-        ? Leaf
-        : beverage.id === 'coffee'
-          ? Coffee
-          : CupSoda
   return (
     <motion.button
       type="button"
@@ -442,13 +495,15 @@ function BeverageButton({
       className={cn(
         'min-h-32 cursor-pointer rounded-4xl border-2 border-berry-100 bg-[#fffdf8] p-5 text-left text-berry-950 shadow-soft transition hover:border-primary hover:bg-white active:translate-y-1 disabled:pointer-events-none disabled:opacity-55',
         'dark:border-white/10 dark:bg-berry-900 dark:text-berry-50 dark:hover:bg-[#202431]',
+        free && 'border-mint',
       )}
     >
       <div className="mb-4 flex items-start justify-between">
-        <Icon className="size-7 text-primary dark:text-blush" aria-hidden="true" />
-        <span className="rounded-full bg-berry-100 px-3 py-1 text-xs font-black text-berry-700 dark:bg-white/10 dark:text-berry-50">
-          {(beverage.price_cents / 100).toFixed(2)} €
-        </span>
+        <BeverageIcon
+          beverageId={beverage.id}
+          className="size-7 text-primary dark:text-blush"
+        />
+        <PricePill priceCents={beverage.price_cents} free={free} tone="soft" />
       </div>
       <p className="font-display text-2xl font-black">{beverage.name}</p>
       <span className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-black text-white dark:bg-blush dark:text-berry-950">

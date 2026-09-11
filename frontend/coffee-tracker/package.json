@@ -1,7 +1,7 @@
 {
   "name": "coffee-tracker",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.0",
   "license": "AGPL-3.0-only",
   "repository": "https://github.com/n1tr0-5urf3r/coffee-tracker",
   "type": "module",

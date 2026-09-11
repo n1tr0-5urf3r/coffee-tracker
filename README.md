@@ -25,6 +25,7 @@
 - **Tap-to-log drinks** with optimistic feedback, a short undo window, QR-ready machine links, and an IndexedDB offline queue.
 - **Personal analytics** for totals, caffeine decay, weekday streaks, hourly rhythm, beverage mix, and a calendar heatmap.
 - **Social stats** with an opt-in leaderboard, achievement standings, rare badges, streak races, and coffee-twin matching.
+- **Stempelkarte loyalty card** where every paid drink earns a stamp, the 13th drink of the month is free, and the discount lands straight on the open tab.
 - **Shared payments** covering open tabs, payment links, settlement history, expenses, and optional email or webhook reminders.
 - **Stock tracking** that decrements ingredients per drink and sends low-stock alerts when configured thresholds are crossed.
 - **Flexible identity** through GitLab OAuth, Authentik/OpenID Connect, or recoverable guest sessions, with configurable access and staff groups.
@@ -46,6 +47,12 @@
   <tr>
     <td align="center"><strong>Unlockable achievements</strong></td>
     <td align="center"><strong>Shared tabs and expenses</strong></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/stempelkarte.png" alt="Stempelkarte loyalty card view"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Stamp cards and free drinks</strong></td>
   </tr>
 </table>
 
@@ -74,7 +81,7 @@ Open `http://localhost:3123`. The API and Swagger UI are available on port `3124
 For a deployment using the published images, run:
 
 ```sh
-docker compose -f docker-compose.deploy.yml up -d
+docker compose -f docker-compose.yml up -d
 ```
 
 The frontend image is configured **at container startup**, not build time. The same image can be branded for another team by changing `.env` and restarting the container.
@@ -83,14 +90,14 @@ The frontend image is configured **at container startup**, not build time. The s
 
 All deployment-specific values live in `.env`; see [`.env.example`](.env.example) for the complete list.
 
-| Area | Variables |
-| --- | --- |
-| Branding | `APP_NAME`, `ORGANIZATION_NAME`, `ORGANIZATION_SHORT_NAME`, `STAFF_LABEL`, `OIDC_LOGIN_LABEL` |
-| Logo | Set `LOGO_URL=/branding/logo.png`, place the file in `BRANDING_DIR`, and restart the frontend |
-| URLs | `PUBLIC_BASE_URL`, `FRONTEND_BASE_URL`, `API_BASE_URL`, `ALLOWED_HOSTS` |
-| Authentication | `GITLAB_*`, `AUTHENTIK_*`, `AUTH_ALLOWED_GROUPS`, `AUTH_STAFF_GROUPS` |
-| Integrations | `MATTERMOST_WEBHOOK_URL`, `MATRIX_WEBHOOK_URL`, `PAYPAL_LINK`, `SMTP_*` |
-| Runtime | `SESSION_SECRET`, `TIMEZONE` |
+| Area           | Variables                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------- |
+| Branding       | `APP_NAME`, `ORGANIZATION_NAME`, `ORGANIZATION_SHORT_NAME`, `STAFF_LABEL`, `OIDC_LOGIN_LABEL` |
+| Logo           | Set `LOGO_URL=/branding/logo.png`, place the file in `BRANDING_DIR`, and restart the frontend |
+| URLs           | `PUBLIC_BASE_URL`, `FRONTEND_BASE_URL`, `API_BASE_URL`, `ALLOWED_HOSTS`                       |
+| Authentication | `GITLAB_*`, `AUTHENTIK_*`, `AUTH_ALLOWED_GROUPS`, `AUTH_STAFF_GROUPS`                         |
+| Integrations   | `MATTERMOST_WEBHOOK_URL`, `MATRIX_WEBHOOK_URL`, `PAYPAL_LINK`, `SMTP_*`                       |
+| Runtime        | `SESSION_SECRET`, `TIMEZONE`                                                                  |
 
 OAuth callback URLs are:
 

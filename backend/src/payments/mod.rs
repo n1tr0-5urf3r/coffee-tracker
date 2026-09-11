@@ -19,11 +19,13 @@ use crate::{
     expenses::{
         user_expense_balance_cents, user_expense_total_cents, user_received_payment_total_cents,
     },
+    loyalty::{discounted_amount_cents, paid_drinks_since_month_of},
     notifications::{
         email::{PaymentReminderEmail, email_address_available, send_payment_reminder_emails},
         notify_payment_marked_paid, notify_payment_reminder, notify_unlocks,
         payment_webhooks_configured,
     },
+    stats::resolve_tz,
 };
 
 pub fn router() -> Router<AppState> {
@@ -705,8 +707,8 @@ async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
             .await?;
     let cutoff = max_period_end.unwrap_or(0);
 
-    let unpaid: (Option<i64>, i64) = sqlx::query_as(
-        "SELECT SUM(b.price_cents), COUNT(*)
+    let unpaid_drink_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
          WHERE c.user_id = ? AND c.consumed_at >= ?",
@@ -716,6 +718,12 @@ async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
     .fetch_one(&state.db)
     .await?;
 
+    // Stamp cards run per calendar month, so positions are counted from the 1st
+    // of the month the open tab starts in - not from the payment cutoff itself.
+    let tz = resolve_tz(&state.config.timezone);
+    let paid_drinks = paid_drinks_since_month_of(state, user_id, cutoff).await?;
+    let unpaid_amount_cents = discounted_amount_cents(&paid_drinks, cutoff, &tz);
+
     let paid: (Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT SUM(amount_cents), SUM(drink_count) FROM payments WHERE user_id = ?",
     )
@@ -724,8 +732,8 @@ async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
     .await?;
 
     Ok(UserTotals {
-        unpaid_amount_cents: unpaid.0.unwrap_or(0),
-        unpaid_drink_count: unpaid.1,
+        unpaid_amount_cents,
+        unpaid_drink_count,
         paid_amount_cents: paid.0.unwrap_or(0),
         paid_drink_count: paid.1.unwrap_or(0),
         last_paid_at,
@@ -934,6 +942,40 @@ mod tests {
         assert_eq!(totals.paid_drink_count, 1);
         assert_eq!(totals.unpaid_amount_cents, 50);
         assert_eq!(totals.unpaid_drink_count, 1);
+    }
+
+    #[tokio::test]
+    async fn user_totals_deducts_the_free_stamp_card_drink() {
+        let state = state().await;
+        // 13 drinks in the same calendar month: the 13th one is on the house.
+        for index in 0..13 {
+            insert_consumption(&state, &format!("drink-{index}"), 1_000 + index * 60).await;
+        }
+
+        let totals = user_totals(&state, "target").await.unwrap();
+        assert_eq!(totals.unpaid_amount_cents, 12 * 50);
+        assert_eq!(totals.unpaid_drink_count, 13);
+    }
+
+    #[tokio::test]
+    async fn free_drink_position_ignores_the_payment_cutoff() {
+        let state = state().await;
+        for index in 0..13 {
+            insert_consumption(&state, &format!("drink-{index}"), 1_000 + index * 60).await;
+        }
+        // Settle the first eight drinks; positions still count from the 1st of the month.
+        sqlx::query(
+            "INSERT INTO payments
+             (id, user_id, amount_cents, drink_count, period_end_ts, paid_at, created_at)
+             VALUES ('payment', 'target', 400, 8, 1480, 1480, 1480)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+        let totals = user_totals(&state, "target").await.unwrap();
+        assert_eq!(totals.unpaid_drink_count, 5);
+        assert_eq!(totals.unpaid_amount_cents, 4 * 50);
     }
 
     #[tokio::test]
@@ -1223,19 +1265,20 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(record.user_id, "actor");
         assert_eq!(record.received_by_user_id.as_deref(), Some("actor"));
-        assert_eq!(record.amount_cents, 650);
+        // 13 drinks in one month: the 13th is free thanks to the stamp card.
+        assert_eq!(record.amount_cents, 600);
         assert_eq!(record.drink_count, 13);
 
         let totals = user_totals(&state, "actor").await.unwrap();
         assert_eq!(totals.unpaid_amount_cents, 0);
-        assert_eq!(totals.paid_amount_cents, 650);
+        assert_eq!(totals.paid_amount_cents, 600);
         assert_eq!(
             user_expense_total_cents(&state, "actor").await.unwrap(),
             1000
         );
         assert_eq!(
             user_expense_balance_cents(&state, "actor").await.unwrap(),
-            350
+            400
         );
     }
 
@@ -1416,8 +1459,9 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].display_name, "Target");
-        assert_eq!(entries[0].amount_cents, 500);
-        assert_eq!(entries[0].payment_link, "https://paypal.example/pay/5.00");
+        // 26 drinks give two free ones, so 24 * 50 cents minus the 800 cents expense.
+        assert_eq!(entries[0].amount_cents, 400);
+        assert_eq!(entries[0].payment_link, "https://paypal.example/pay/4.00");
     }
 
     #[tokio::test]

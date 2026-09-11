@@ -6,6 +6,7 @@ import {
   LogOut,
   Medal,
   Settings,
+  Stamp,
   Trophy,
 } from 'lucide-react'
 import { useEffect } from 'react'
@@ -25,6 +26,7 @@ export function AppShell() {
   const queryClient = useQueryClient()
   const navItems = [
     { to: '/', label: 'Log', icon: Coffee },
+    { to: '/stempelkarte', label: 'Stempelkarte', mobileLabel: 'Karte', icon: Stamp },
     { to: '/dashboard', label: 'Stats', icon: BarChart3 },
     { to: '/achievements', label: 'Badges', icon: Medal },
     { to: '/leaderboard', label: `${branding.organizationShortName} Ranking`, mobileLabel: 'Rank', icon: Trophy },

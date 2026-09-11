@@ -26,6 +26,7 @@ export const queryKeys = {
   globalBuckets: (range: GlobalRange) => ['stats', 'global-buckets', range] as const,
   globalBeverages: (range: GlobalRange) => ['stats', 'global-beverages', range] as const,
   achievements: ['achievements'] as const,
+  stampCard: (month: string) => ['stempelkarte', month] as const,
   leaderboard: ['leaderboard'] as const,
   coffeeTwins: ['coffeeTwins'] as const,
   payments: ['payments'] as const,
@@ -256,9 +257,17 @@ export function useVersion() {
   })
 }
 
+export function useStampCard(month: string) {
+  return useQuery({
+    queryKey: queryKeys.stampCard(month),
+    queryFn: () => api.stampCard(month),
+  })
+}
+
 export function invalidateCoffeeData(queryClient: ReturnType<typeof useQueryClient>) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ['stats'] }),
+    queryClient.invalidateQueries({ queryKey: ['stempelkarte'] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.achievements }),
     queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard }),
     queryClient.invalidateQueries({ queryKey: queryKeys.coffeeTwins }),

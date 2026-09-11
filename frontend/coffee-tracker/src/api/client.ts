@@ -26,6 +26,9 @@ export type MyBeveragesResponse = components['schemas']['MyBeverageResponse']
 export type GlobalRange = '30' | 'all'
 export type AchievementsResponse = components['schemas']['AchievementsResponse']
 export type AchievementItem = components['schemas']['AchievementItem']
+export type Stamp = components['schemas']['Stamp']
+export type StampCard = components['schemas']['StampCard']
+export type StampCardResponse = components['schemas']['StampCardResponse']
 export type LeaderboardResponse = components['schemas']['LeaderboardResponse']
 export type CoffeeTwinsResponse = components['schemas']['CoffeeTwinsResponse']
 export type PaymentSummary = components['schemas']['PaymentSummary']
@@ -204,6 +207,12 @@ export const api = {
     ),
   achievements: () =>
     request<AchievementsResponse>('/api/v1/achievements/me'),
+  stampCard: (month?: string) =>
+    request<StampCardResponse>(
+      month
+        ? `/api/v1/stempelkarte/me?month=${encodeURIComponent(month)}`
+        : '/api/v1/stempelkarte/me',
+    ),
   leaderboard: () => request<LeaderboardResponse>('/api/v1/leaderboard'),
   coffeeTwins: () => request<CoffeeTwinsResponse>('/api/v1/coffee-twins'),
   payments: () => request<PaymentsResponse>('/api/v1/payments'),

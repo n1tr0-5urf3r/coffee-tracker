@@ -3,8 +3,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    AppState, achievements, auth, catalog, consumptions, expenses, payments, social, stats, stock,
-    version,
+    AppState, achievements, auth, catalog, consumptions, expenses, loyalty, payments, social, stats,
+    stock, version,
 };
 
 pub fn router() -> Router<AppState> {
@@ -44,6 +44,7 @@ pub fn openapi_json() -> String {
         stats::global_buckets,
         stats::global_beverages,
         achievements::my_achievements,
+        loyalty::my_stamp_card,
         social::leaderboard,
         social::coffee_twins,
         payments::list_payments,
@@ -89,6 +90,9 @@ pub fn openapi_json() -> String {
             stats::GlobalBucket,
             stats::GlobalBucketsResponse,
             stats::GlobalBeverageResponse,
+            loyalty::Stamp,
+            loyalty::StampCard,
+            loyalty::StampCardResponse,
             achievements::AchievementItem,
             achievements::AchievementsResponse,
             social::LeaderboardEntry,

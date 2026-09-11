@@ -15,6 +15,7 @@ import { LoginPage } from './pages/LoginPage'
 import { LogPage } from './pages/LogPage'
 import { PaymentsPage } from './pages/PaymentsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { StempelkartePage } from './pages/StempelkartePage'
 import { ThemeProvider } from './lib/theme'
 import { ToastProvider } from './lib/toast'
 
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <LogPage /> },
+          { path: '/stempelkarte', element: <StempelkartePage /> },
           { path: '/dashboard', element: <DashboardPage /> },
           { path: '/achievements', element: <AchievementsPage /> },
           { path: '/leaderboard', element: <LeaderboardPage /> },

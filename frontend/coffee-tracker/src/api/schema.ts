@@ -548,6 +548,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stempelkarte/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["my_stamp_card"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock": {
         parameters: {
             query?: never;
@@ -970,6 +986,46 @@ export interface components {
             beverage_id: string;
             /** Format: int64 */
             consumed_at: number;
+        };
+        Stamp: {
+            beverage_id: string;
+            beverage_name: string;
+            /** Format: int64 */
+            consumed_at: number;
+            /**
+             * Format: int64
+             * @description 1-based position within the month's sequence of paid drinks.
+             */
+            position: number;
+            /** Format: int64 */
+            price_cents: number;
+        };
+        StampCard: {
+            complete: boolean;
+            /**
+             * Format: int64
+             * @description 1-based index of this card within the month.
+             */
+            index: number;
+            reward?: null | components["schemas"]["Stamp"];
+            stamps: components["schemas"]["Stamp"][];
+        };
+        StampCardResponse: {
+            cards: components["schemas"]["StampCard"][];
+            /** Format: int64 */
+            free_drinks_earned: number;
+            /** @description Calendar month of the card, formatted as `YYYY-MM`. */
+            month: string;
+            /** Format: int64 */
+            month_end_ts: number;
+            /** Format: int64 */
+            month_start_ts: number;
+            /** Format: int64 */
+            paid_drink_count: number;
+            /** Format: int64 */
+            saved_cents: number;
+            /** Format: int64 */
+            stamps_per_card: number;
         };
         StockItem: {
             alerted: boolean;
@@ -1792,6 +1848,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SummaryResponse"];
+                };
+            };
+        };
+    };
+    my_stamp_card: {
+        parameters: {
+            query?: {
+                /** @description Calendar month to display, formatted as `YYYY-MM`. Defaults to the current month. */
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StampCardResponse"];
                 };
             };
         };
