@@ -129,7 +129,9 @@ fn parse_month(value: &str) -> ApiResult<(i32, u32)> {
         .parse()
         .map_err(|_| ApiError::BadRequest("month must be formatted as YYYY-MM".into()))?;
     if !(1..=12).contains(&month) {
-        return Err(ApiError::BadRequest("month must be between 01 and 12".into()));
+        return Err(ApiError::BadRequest(
+            "month must be between 01 and 12".into(),
+        ));
     }
     Ok((year, month))
 }

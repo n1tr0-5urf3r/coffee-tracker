@@ -3,8 +3,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    AppState, achievements, auth, catalog, consumptions, expenses, loyalty, payments, social, stats,
-    stock, version,
+    AppState, achievements, auth, catalog, consumptions, expenses, loyalty, payments, social,
+    stats, stock, version,
 };
 
 pub fn router() -> Router<AppState> {
