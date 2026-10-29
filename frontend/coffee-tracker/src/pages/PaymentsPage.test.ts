@@ -3,9 +3,28 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PaymentSummary } from '../api/client'
-import { autoReminderNote, buildPaymentUrl, EmailReminderDialog } from './PaymentsPage'
+import {
+  autoReminderNote,
+  buildPaymentUrl,
+  EmailReminderDialog,
+  resolvePaymentsSection,
+} from './PaymentsPage'
 
 afterEach(cleanup)
+
+describe('resolvePaymentsSection', () => {
+  it('opens staff-only sections for staff', () => {
+    expect(resolvePaymentsSection('expenses', true)).toBe('expenses')
+    expect(resolvePaymentsSection('ledger', true)).toBe('ledger')
+  })
+
+  it('falls back to the overview for non-staff and unknown sections', () => {
+    expect(resolvePaymentsSection('expenses', false)).toBe('overview')
+    expect(resolvePaymentsSection('ledger', false)).toBe('overview')
+    expect(resolvePaymentsSection('nope', true)).toBe('overview')
+    expect(resolvePaymentsSection(undefined, true)).toBe('overview')
+  })
+})
 
 describe('autoReminderNote', () => {
   const links = [{ user_id: 'staff', display_name: 'Etienne Zink', paypal_link: 'https://paypal.me/x' }]

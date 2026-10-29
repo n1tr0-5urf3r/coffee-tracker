@@ -1,5 +1,6 @@
-import { Banknote, CalendarClock, CheckCircle2, Copy, ExternalLink, Mail, Plus, ReceiptText, Send } from 'lucide-react'
+import { Banknote, BookOpenText, CalendarClock, CheckCircle2, Copy, ExternalLink, Mail, Plus, ReceiptText, Send, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Navigate, NavLink, useParams } from 'react-router-dom'
 import {
   useCreateExpenseMutation,
   useEmailPaymentReminderMutation,
@@ -26,14 +27,25 @@ import type {
 import { Button } from '../components/Button'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
+import { cn } from '../lib/cn'
 import { formatUnixDate } from '../lib/date'
 import { formatEuros, paymentAmountDueCents } from '../lib/money'
 import { useToast } from '../lib/toast'
 import { branding } from '../config/branding'
 
+type PaymentsSection = 'overview' | 'expenses' | 'ledger'
+
+const staffSections: { section: PaymentsSection; to: string; label: string; icon: LucideIcon }[] = [
+  { section: 'overview', to: '/payments', label: 'Overview', icon: Banknote },
+  { section: 'expenses', to: '/payments/expenses', label: 'Expenses', icon: ReceiptText },
+  { section: 'ledger', to: '/payments/ledger', label: 'Ledger', icon: BookOpenText },
+]
+
 export function PaymentsPage() {
   const { data: me } = useMe()
+  const { section: sectionParam } = useParams()
   const isStaff = Boolean(me?.user.stock_manager)
+  const section = resolvePaymentsSection(sectionParam, isStaff)
   const payments = usePayments(isStaff)
   const myPayment = useMyPayment()
   const paymentLinks = usePaymentsLinks(true)
@@ -198,198 +210,208 @@ export function PaymentsPage() {
     )
   }
 
+  if (me && sectionParam && section === 'overview') {
+    return <Navigate to="/payments" replace />
+  }
+
   return (
     <div>
-      <PageHeader eyebrow={isStaff ? `${branding.organizationShortName} staff tools` : 'Payments'} title="Payments" />
+      <PageHeader eyebrow={isStaff ? `${branding.organizationShortName} staff tools` : 'Payments'} title="Payments">
+        {isStaff ? <StaffSectionTabs /> : null}
+      </PageHeader>
 
-      <PaymentLinkGenerator
-        links={paymentLinks.data?.entries ?? []}
-        linksLoading={paymentLinks.isLoading}
-        payment={myPayment.data}
-        canSendReminders={isStaff}
-        reminderPending={paymentReminder.isPending}
-        emailReminderPending={emailPaymentReminder.isPending}
-        emailRemindersConfigured={Boolean(paymentConfig.data?.email_reminders_configured)}
-        emailConfigLoading={paymentConfig.isLoading}
-        autoReminder={paymentConfig.data?.auto_reminder ?? null}
-        onSendReminder={sendPaymentReminder}
-        onOpenEmailReminder={(paymentLinkUserId) =>
-          setEmailReminderDraft({
-            paymentLinkUserId,
-            mode: 'selected',
-            selectedUserIds: [],
-          })
-        }
-      />
+      {section === 'overview' ? (
+        <>
+          <PaymentLinkGenerator
+            links={paymentLinks.data?.entries ?? []}
+            linksLoading={paymentLinks.isLoading}
+            payment={myPayment.data}
+            canSendReminders={isStaff}
+            reminderPending={paymentReminder.isPending}
+            emailReminderPending={emailPaymentReminder.isPending}
+            emailRemindersConfigured={Boolean(paymentConfig.data?.email_reminders_configured)}
+            emailConfigLoading={paymentConfig.isLoading}
+            autoReminder={paymentConfig.data?.auto_reminder ?? null}
+            onSendReminder={sendPaymentReminder}
+            onOpenEmailReminder={(paymentLinkUserId) =>
+              setEmailReminderDraft({
+                paymentLinkUserId,
+                mode: 'selected',
+                selectedUserIds: [],
+              })
+            }
+          />
 
-      {isLoading ? (
-        <Skeleton className="h-72" />
-      ) : (
-        <Card>
-          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="mb-2 flex items-center gap-3">
-                <Banknote className="size-6 text-primary dark:text-blush" />
-                <p className="font-display text-xl font-black">Payment tracking</p>
-              </div>
-              <p className="text-sm font-bold text-berry-700 dark:text-rose-100">
-                {isStaff
-                  ? 'Current unpaid tabs and settled usage for everyone.'
-                  : 'Your own current and already settled usage.'}
-              </p>
-            </div>
-          </div>
-
-          {displayedEntries.length ? (
-            <>
-              <div className="space-y-3 md:hidden">
-                {displayedEntries.map((entry) => (
-                  <PaymentEntryCard
-                    key={entry.user_id}
-                    entry={entry}
-                    isCurrentUser={entry.user_id === me?.user.id}
-                    canMarkEntry={Boolean(me?.user.stock_manager) || entry.user_id === me?.user.id}
-                    isPending={markPaid.isPending || paymentRecipients.isLoading}
-                    hasRecipients={recipients.length > 0}
-                    onMarkPaid={() => openMarkPaidDialog(entry)}
-                  />
-                ))}
-              </div>
-
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[46rem] border-separate border-spacing-y-2 text-left">
-                  <thead>
-                    <tr className="text-xs font-black uppercase tracking-[0.14em] text-berry-700 dark:text-rose-100">
-                      <th className="px-3 py-2">User</th>
-                      <th className="px-3 py-2">Current debt</th>
-                      <th className="px-3 py-2">Expenses</th>
-                      <th className="px-3 py-2">Amount due</th>
-                      <th className="px-3 py-2">Unpaid cups</th>
-                      <th className="px-3 py-2">Already paid</th>
-                      <th className="px-3 py-2">Paid cups</th>
-                      <th className="px-3 py-2">Last paid</th>
-                      <th className="px-3 py-2 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedEntries.map((entry) => {
-                      const canMarkEntry =
-                        Boolean(me?.user.stock_manager) || entry.user_id === me?.user.id
-                      const isCurrentUser = entry.user_id === me?.user.id
-                      const amountDueCents = paymentAmountDueCents(entry)
-                      return (
-                        <tr
-                          key={entry.user_id}
-                          className={
-                            isCurrentUser
-                              ? 'bg-primary/15 font-bold text-berry-950 ring-2 ring-primary/40 dark:bg-blush/15 dark:text-berry-50 dark:ring-blush/40'
-                              : 'bg-berry-100 font-bold text-berry-950 dark:bg-white/10 dark:text-berry-50'
-                          }
-                        >
-                          <td className="rounded-l-2xl px-3 py-3">
-                            <span className="flex flex-wrap items-center gap-2 font-display font-black">
-                              {entry.display_name}
-                              {isCurrentUser ? (
-                                <span className="rounded-full bg-primary px-2 py-0.5 text-[0.65rem] font-black uppercase tracking-[0.12em] text-white dark:bg-blush dark:text-berry-950">
-                                  You
-                                </span>
-                              ) : null}
-                            </span>
-                            <span className="text-xs uppercase text-berry-700 dark:text-rose-100">
-                              {entry.user_type}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3">{formatEuros(entry.unpaid_amount_cents)}</td>
-                          <td className="px-3 py-3">
-                            {formatEuros(entry.expense_amount_cents)}
-                          </td>
-                          <td className="px-3 py-3">
-                            {formatEuros(amountDueCents)}
-                          </td>
-                          <td className="px-3 py-3">{entry.unpaid_drink_count}</td>
-                          <td className="px-3 py-3">{formatEuros(entry.paid_amount_cents)}</td>
-                          <td className="px-3 py-3">{entry.paid_drink_count}</td>
-                          <td className="px-3 py-3">
-                            {formatUnixDate(entry.last_paid_at, 'Never')}
-                          </td>
-                          <td className="rounded-r-2xl px-3 py-3 text-right">
-                            {canMarkEntry && entry.unpaid_drink_count > 0 ? (
-                              <Button
-                                className="whitespace-nowrap"
-                                disabled={
-                                  markPaid.isPending ||
-                                  paymentRecipients.isLoading ||
-                                  recipients.length === 0
-                                }
-                                onClick={() => openMarkPaidDialog(entry)}
-                              >
-                                <CheckCircle2 className="size-4" />
-                                Mark paid
-                              </Button>
-                            ) : canMarkEntry ? (
-                              <span className="text-sm font-black text-berry-700 dark:text-rose-100">
-                                Settled
-                              </span>
-                            ) : (
-                              <span className="text-sm font-black text-berry-700 dark:text-rose-100">
-                                -
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+          {isLoading ? (
+            <Skeleton className="h-72" />
           ) : (
-            <p className="font-bold text-berry-700 dark:text-rose-100">No payment entries yet.</p>
+            <Card>
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="mb-2 flex items-center gap-3">
+                    <Banknote className="size-6 text-primary dark:text-blush" />
+                    <p className="font-display text-xl font-black">Payment tracking</p>
+                  </div>
+                  <p className="text-sm font-bold text-berry-700 dark:text-rose-100">
+                    {isStaff
+                      ? 'Current unpaid tabs and settled usage for everyone.'
+                      : 'Your own current and already settled usage.'}
+                  </p>
+                </div>
+              </div>
+
+              {displayedEntries.length ? (
+                <>
+                  <div className="space-y-3 md:hidden">
+                    {displayedEntries.map((entry) => (
+                      <PaymentEntryCard
+                        key={entry.user_id}
+                        entry={entry}
+                        isCurrentUser={entry.user_id === me?.user.id}
+                        canMarkEntry={Boolean(me?.user.stock_manager) || entry.user_id === me?.user.id}
+                        isPending={markPaid.isPending || paymentRecipients.isLoading}
+                        hasRecipients={recipients.length > 0}
+                        onMarkPaid={() => openMarkPaidDialog(entry)}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="hidden overflow-x-auto md:block">
+                    <table className="w-full min-w-[46rem] border-separate border-spacing-y-2 text-left">
+                      <thead>
+                        <tr className="text-xs font-black uppercase tracking-[0.14em] text-berry-700 dark:text-rose-100">
+                          <th className="px-3 py-2">User</th>
+                          <th className="px-3 py-2">Current debt</th>
+                          <th className="px-3 py-2">Expenses</th>
+                          <th className="px-3 py-2">Amount due</th>
+                          <th className="px-3 py-2">Unpaid cups</th>
+                          <th className="px-3 py-2">Already paid</th>
+                          <th className="px-3 py-2">Paid cups</th>
+                          <th className="px-3 py-2">Last paid</th>
+                          <th className="px-3 py-2 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {displayedEntries.map((entry) => {
+                          const canMarkEntry =
+                            Boolean(me?.user.stock_manager) || entry.user_id === me?.user.id
+                          const isCurrentUser = entry.user_id === me?.user.id
+                          const amountDueCents = paymentAmountDueCents(entry)
+                          return (
+                            <tr
+                              key={entry.user_id}
+                              className={
+                                isCurrentUser
+                                  ? 'bg-primary/15 font-bold text-berry-950 ring-2 ring-primary/40 dark:bg-blush/15 dark:text-berry-50 dark:ring-blush/40'
+                                  : 'bg-berry-100 font-bold text-berry-950 dark:bg-white/10 dark:text-berry-50'
+                              }
+                            >
+                              <td className="rounded-l-2xl px-3 py-3">
+                                <span className="flex flex-wrap items-center gap-2 font-display font-black">
+                                  {entry.display_name}
+                                  {isCurrentUser ? (
+                                    <span className="rounded-full bg-primary px-2 py-0.5 text-[0.65rem] font-black uppercase tracking-[0.12em] text-white dark:bg-blush dark:text-berry-950">
+                                      You
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="text-xs uppercase text-berry-700 dark:text-rose-100">
+                                  {entry.user_type}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3">{formatEuros(entry.unpaid_amount_cents)}</td>
+                              <td className="px-3 py-3">
+                                {formatEuros(entry.expense_amount_cents)}
+                              </td>
+                              <td className="px-3 py-3">
+                                {formatEuros(amountDueCents)}
+                              </td>
+                              <td className="px-3 py-3">{entry.unpaid_drink_count}</td>
+                              <td className="px-3 py-3">{formatEuros(entry.paid_amount_cents)}</td>
+                              <td className="px-3 py-3">{entry.paid_drink_count}</td>
+                              <td className="px-3 py-3">
+                                {formatUnixDate(entry.last_paid_at, 'Never')}
+                              </td>
+                              <td className="rounded-r-2xl px-3 py-3 text-right">
+                                {canMarkEntry && entry.unpaid_drink_count > 0 ? (
+                                  <Button
+                                    className="whitespace-nowrap"
+                                    disabled={
+                                      markPaid.isPending ||
+                                      paymentRecipients.isLoading ||
+                                      recipients.length === 0
+                                    }
+                                    onClick={() => openMarkPaidDialog(entry)}
+                                  >
+                                    <CheckCircle2 className="size-4" />
+                                    Mark paid
+                                  </Button>
+                                ) : canMarkEntry ? (
+                                  <span className="text-sm font-black text-berry-700 dark:text-rose-100">
+                                    Settled
+                                  </span>
+                                ) : (
+                                  <span className="text-sm font-black text-berry-700 dark:text-rose-100">
+                                    -
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <p className="font-bold text-berry-700 dark:text-rose-100">No payment entries yet.</p>
+              )}
+            </Card>
           )}
-        </Card>
-      )}
 
-      {markPaidDraft ? (
-        <MarkPaidDialog
-          entry={markPaidDraft.entry}
-          recipients={recipients}
-          selectedRecipientId={markPaidDraft.recipientId}
-          isPending={markPaid.isPending}
-          onRecipientChange={(recipientId) =>
-            setMarkPaidDraft((draft) => (draft ? { ...draft, recipientId } : draft))
-          }
-          onCancel={() => setMarkPaidDraft(null)}
-          onConfirm={confirmMarkPaid}
-        />
+          {markPaidDraft ? (
+            <MarkPaidDialog
+              entry={markPaidDraft.entry}
+              recipients={recipients}
+              selectedRecipientId={markPaidDraft.recipientId}
+              isPending={markPaid.isPending}
+              onRecipientChange={(recipientId) =>
+                setMarkPaidDraft((draft) => (draft ? { ...draft, recipientId } : draft))
+              }
+              onCancel={() => setMarkPaidDraft(null)}
+              onConfirm={confirmMarkPaid}
+            />
+          ) : null}
+
+          {emailReminderDraft ? (
+            <EmailReminderDialog
+              entries={payments.data?.entries ?? []}
+              mode={emailReminderDraft.mode}
+              selectedUserIds={emailReminderDraft.selectedUserIds}
+              isPending={emailPaymentReminder.isPending}
+              onModeChange={(mode) =>
+                setEmailReminderDraft((draft) => (draft ? { ...draft, mode } : draft))
+              }
+              onSelectionChange={(selectedUserIds) =>
+                setEmailReminderDraft((draft) =>
+                  draft ? { ...draft, selectedUserIds } : draft,
+                )
+              }
+              onCancel={() => setEmailReminderDraft(null)}
+              onConfirm={sendEmailPaymentReminder}
+            />
+          ) : null}
+        </>
       ) : null}
 
-      {emailReminderDraft ? (
-        <EmailReminderDialog
-          entries={payments.data?.entries ?? []}
-          mode={emailReminderDraft.mode}
-          selectedUserIds={emailReminderDraft.selectedUserIds}
-          isPending={emailPaymentReminder.isPending}
-          onModeChange={(mode) =>
-            setEmailReminderDraft((draft) => (draft ? { ...draft, mode } : draft))
-          }
-          onSelectionChange={(selectedUserIds) =>
-            setEmailReminderDraft((draft) =>
-              draft ? { ...draft, selectedUserIds } : draft,
-            )
-          }
-          onCancel={() => setEmailReminderDraft(null)}
-          onConfirm={sendEmailPaymentReminder}
-        />
-      ) : null}
-
-      {isStaff ? (
+      {section === 'ledger' ? (
         <ReceivedPaymentsOverview
           entries={payments.data?.received_payments ?? []}
           loading={payments.isLoading}
         />
       ) : null}
 
-      {isStaff ? (
+      {section === 'expenses' ? (
         <ExpensesTracker
           entries={expenses.data?.entries ?? []}
           summaries={expenses.data?.summaries ?? []}
@@ -422,6 +444,47 @@ export function PaymentsPage() {
         />
       ) : null}
     </div>
+  )
+}
+
+export function resolvePaymentsSection(
+  sectionParam: string | undefined,
+  isStaff: boolean,
+): PaymentsSection {
+  if (isStaff && (sectionParam === 'expenses' || sectionParam === 'ledger')) {
+    return sectionParam
+  }
+  return 'overview'
+}
+
+function StaffSectionTabs() {
+  return (
+    <nav
+      aria-label="Payments sections"
+      className="grid grid-cols-3 gap-1 rounded-3xl border-2 border-white/80 bg-white/70 p-1 shadow-soft dark:border-white/10 dark:bg-berry-900/70"
+    >
+      {staffSections.map((item) => {
+        const Icon = item.icon
+        return (
+          <NavLink
+            key={item.section}
+            to={item.to}
+            end
+            className={({ isActive }) =>
+              cn(
+                'flex min-h-11 items-center justify-center gap-2 rounded-2xl px-3 text-sm font-black text-berry-700 transition',
+                isActive
+                  ? 'bg-primary text-white shadow-button dark:bg-blush dark:text-berry-950'
+                  : 'hover:bg-primary/10 dark:text-rose-100 dark:hover:bg-white/10',
+              )
+            }
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {item.label}
+          </NavLink>
+        )
+      })}
+    </nav>
   )
 }
 
@@ -996,7 +1059,7 @@ function ReceivedPaymentsOverview({
   loading: boolean
 }) {
   return (
-    <Card className="mt-5">
+    <Card>
       <div className="mb-5 flex items-center gap-3">
         <Banknote className="size-6 text-primary dark:text-blush" />
         <p className="font-display text-xl font-black">Received payments</p>
@@ -1120,7 +1183,7 @@ function ExpensesTracker({
   }
 
   return (
-    <Card className="mt-5">
+    <Card>
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-3">
