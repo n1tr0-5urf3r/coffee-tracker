@@ -645,6 +645,11 @@ export interface components {
         AchievementsResponse: {
             achievements: components["schemas"]["AchievementItem"][];
         };
+        AutoReminderInfo: {
+            /** Format: int32 */
+            hour: number;
+            payment_link_user_id: string;
+        };
         Beverage: {
             /** Format: int64 */
             caffeine_mg: number;
@@ -889,6 +894,7 @@ export interface components {
             user_id: string;
         };
         PaymentConfigResponse: {
+            auto_reminder?: null | components["schemas"]["AutoReminderInfo"];
             email_reminders_configured: boolean;
             paypal_link?: string | null;
         };

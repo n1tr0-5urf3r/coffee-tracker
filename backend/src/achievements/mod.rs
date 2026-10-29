@@ -606,6 +606,7 @@ mod tests {
                 matrix_webhook_url: None,
                 smtp: None,
                 paypal_link: None,
+                auto_payment_reminder: None,
                 timezone: "UTC".into(),
                 session_ttl: std::time::Duration::from_secs(60),
             },

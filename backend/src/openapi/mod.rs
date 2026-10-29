@@ -114,6 +114,7 @@ pub fn openapi_json() -> String {
             payments::PaymentRecipient,
             payments::PaymentRecipientsResponse,
             payments::MarkPaidRequest,
+            payments::AutoReminderInfo,
             payments::PaymentReminderRequest,
             payments::PaymentReminderResponse,
             payments::EmailPaymentReminderRequest,

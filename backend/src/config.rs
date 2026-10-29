@@ -16,6 +16,12 @@ pub struct SmtpConfig {
     pub security: SmtpSecurity,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoPaymentReminderConfig {
+    pub payment_link_user_id: String,
+    pub hour: u32,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub app_name: String,
@@ -38,6 +44,7 @@ pub struct Config {
     pub matrix_webhook_url: Option<String>,
     pub smtp: Option<SmtpConfig>,
     pub paypal_link: Option<String>,
+    pub auto_payment_reminder: Option<AutoPaymentReminderConfig>,
     pub timezone: String,
     pub session_ttl: Duration,
 }
@@ -77,6 +84,10 @@ impl Config {
         let matrix_webhook_url = optional_env("MATRIX_WEBHOOK_URL");
         let smtp = smtp_config_from_env()?;
         let paypal_link = env::var("PAYPAL_LINK").ok().and_then(non_empty_trimmed);
+        let auto_payment_reminder = build_auto_payment_reminder_config(
+            optional_env("AUTO_PAYMENT_REMINDER_LINK_USER_ID"),
+            optional_env("AUTO_PAYMENT_REMINDER_HOUR"),
+        )?;
         let timezone = env::var("TIMEZONE").unwrap_or_else(|_| "Europe/Berlin".into());
 
         Ok(Self {
@@ -100,6 +111,7 @@ impl Config {
             matrix_webhook_url,
             smtp,
             paypal_link,
+            auto_payment_reminder,
             timezone,
             session_ttl: Duration::from_secs(60 * 60 * 24 * 180),
         })
@@ -153,6 +165,25 @@ fn build_smtp_config(
     }))
 }
 
+fn build_auto_payment_reminder_config(
+    payment_link_user_id: Option<String>,
+    hour: Option<String>,
+) -> anyhow::Result<Option<AutoPaymentReminderConfig>> {
+    let Some(payment_link_user_id) = payment_link_user_id else {
+        return Ok(None);
+    };
+    let hour = hour
+        .unwrap_or_else(|| "10".into())
+        .parse::<u32>()
+        .ok()
+        .filter(|hour| *hour < 24)
+        .with_context(|| "AUTO_PAYMENT_REMINDER_HOUR must be an hour between 0 and 23")?;
+    Ok(Some(AutoPaymentReminderConfig {
+        payment_link_user_id,
+        hour,
+    }))
+}
+
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().and_then(non_empty_trimmed)
 }
@@ -173,7 +204,10 @@ fn parse_csv_env(value: String) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SmtpSecurity, build_smtp_config, non_empty_trimmed, parse_csv_env};
+    use super::{
+        SmtpSecurity, build_auto_payment_reminder_config, build_smtp_config, non_empty_trimmed,
+        parse_csv_env,
+    };
 
     #[test]
     fn blank_optional_env_values_are_disabled() {
@@ -241,6 +275,35 @@ mod tests {
                 Some("smtps".into()),
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn auto_payment_reminder_is_disabled_without_link_user() {
+        assert_eq!(
+            build_auto_payment_reminder_config(None, Some("8".into())).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn auto_payment_reminder_hour_defaults_to_ten_and_is_validated() {
+        let config = build_auto_payment_reminder_config(Some("staff".into()), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(config.payment_link_user_id, "staff");
+        assert_eq!(config.hour, 10);
+
+        let config = build_auto_payment_reminder_config(Some("staff".into()), Some("0".into()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(config.hour, 0);
+
+        assert!(
+            build_auto_payment_reminder_config(Some("staff".into()), Some("24".into())).is_err()
+        );
+        assert!(
+            build_auto_payment_reminder_config(Some("staff".into()), Some("ten".into())).is_err()
         );
     }
 }

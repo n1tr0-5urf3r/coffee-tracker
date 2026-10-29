@@ -3,9 +3,25 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PaymentSummary } from '../api/client'
-import { buildPaymentUrl, EmailReminderDialog } from './PaymentsPage'
+import { autoReminderNote, buildPaymentUrl, EmailReminderDialog } from './PaymentsPage'
 
 afterEach(cleanup)
+
+describe('autoReminderNote', () => {
+  const links = [{ user_id: 'staff', display_name: 'Etienne Zink', paypal_link: 'https://paypal.me/x' }]
+
+  it('names the configured payment link owner and a zero-padded hour', () => {
+    expect(autoReminderNote({ payment_link_user_id: 'staff', hour: 9 }, links)).toBe(
+      "Sent automatically on the last day of each month at 09:00 via Etienne Zink's link.",
+    )
+  })
+
+  it('omits the owner when the link user is not listed', () => {
+    expect(autoReminderNote({ payment_link_user_id: 'unknown', hour: 10 }, links)).toBe(
+      'Sent automatically on the last day of each month at 10:00.',
+    )
+  })
+})
 
 describe('buildPaymentUrl', () => {
   it('appends a two-decimal euro amount to the payment path', () => {

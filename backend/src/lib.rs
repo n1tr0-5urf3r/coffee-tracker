@@ -44,6 +44,10 @@ pub async fn build_app(config: Config, db: SqlitePool) -> anyhow::Result<Router>
         http: reqwest::Client::new(),
     };
 
+    if let Some(auto_payment_reminder) = state.config.auto_payment_reminder.clone() {
+        payments::scheduler::spawn(state.clone(), auto_payment_reminder);
+    }
+
     let api = Router::new()
         .merge(auth::router())
         .merge(catalog::router())

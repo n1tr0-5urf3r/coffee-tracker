@@ -28,6 +28,8 @@ use crate::{
     stats::resolve_tz,
 };
 
+pub mod scheduler;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/payments", get(list_payments).post(mark_paid))
@@ -159,6 +161,13 @@ pub struct MyPaymentResponse {
 pub struct PaymentConfigResponse {
     pub paypal_link: Option<String>,
     pub email_reminders_configured: bool,
+    pub auto_reminder: Option<AutoReminderInfo>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AutoReminderInfo {
+    pub payment_link_user_id: String,
+    pub hour: u32,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -300,6 +309,14 @@ pub(crate) async fn payment_config(
     Ok(Json(PaymentConfigResponse {
         paypal_link: state.config.paypal_link.clone(),
         email_reminders_configured: state.config.smtp.is_some(),
+        auto_reminder: state
+            .config
+            .auto_payment_reminder
+            .as_ref()
+            .map(|config| AutoReminderInfo {
+                payment_link_user_id: config.payment_link_user_id.clone(),
+                hour: config.hour,
+            }),
     }))
 }
 
@@ -315,26 +332,8 @@ pub(crate) async fn send_payment_reminder(
     Json(input): Json<PaymentReminderRequest>,
 ) -> ApiResult<Json<PaymentReminderResponse>> {
     ensure_stock_manager(&user)?;
-    if !payment_webhooks_configured(&state) {
-        return Err(ApiError::BadRequest(
-            "payment reminder webhooks are not configured".into(),
-        ));
-    }
-
-    let payment_link = selected_payment_link(&state, &input.payment_link_user_id).await?;
-    let entries = payment_reminder_entries(&state, &payment_link).await?;
-    if entries.is_empty() {
-        return Err(ApiError::BadRequest(
-            "no users have open payment balance".into(),
-        ));
-    }
-
-    let message = payment_reminder_message(&entries);
-    notify_payment_reminder(&state, &message).await;
-
-    Ok(Json(PaymentReminderResponse {
-        reminded_count: entries.len(),
-    }))
+    let reminded_count = dispatch_webhook_reminder(&state, &input.payment_link_user_id).await?;
+    Ok(Json(PaymentReminderResponse { reminded_count }))
 }
 
 #[utoipa::path(
@@ -349,12 +348,49 @@ pub(crate) async fn send_email_payment_reminder(
     Json(input): Json<EmailPaymentReminderRequest>,
 ) -> ApiResult<Json<EmailPaymentReminderResponse>> {
     ensure_stock_manager(&user)?;
+    let response = dispatch_email_reminders(
+        &state,
+        &input.payment_link_user_id,
+        input.recipient_user_ids,
+    )
+    .await?;
+    Ok(Json(response))
+}
+
+pub(crate) async fn dispatch_webhook_reminder(
+    state: &AppState,
+    payment_link_user_id: &str,
+) -> ApiResult<usize> {
+    if !payment_webhooks_configured(state) {
+        return Err(ApiError::BadRequest(
+            "payment reminder webhooks are not configured".into(),
+        ));
+    }
+
+    let payment_link = selected_payment_link(state, payment_link_user_id).await?;
+    let entries = payment_reminder_entries(state, &payment_link).await?;
+    if entries.is_empty() {
+        return Err(ApiError::BadRequest(
+            "no users have open payment balance".into(),
+        ));
+    }
+
+    let message = payment_reminder_message(&entries);
+    notify_payment_reminder(state, &message).await;
+    Ok(entries.len())
+}
+
+pub(crate) async fn dispatch_email_reminders(
+    state: &AppState,
+    payment_link_user_id: &str,
+    recipient_user_ids: Option<Vec<String>>,
+) -> ApiResult<EmailPaymentReminderResponse> {
     let smtp = state.config.smtp.as_ref().ok_or_else(|| {
         ApiError::ServiceUnavailable("email payment reminders are not configured".into())
     })?;
 
-    let payment_link = selected_payment_link(&state, &input.payment_link_user_id).await?;
-    let entries = payment_reminder_entries(&state, &payment_link).await?;
+    let payment_link = selected_payment_link(state, payment_link_user_id).await?;
+    let entries = payment_reminder_entries(state, &payment_link).await?;
     if entries.is_empty() {
         return Err(ApiError::BadRequest(
             "no users have open payment balance".into(),
@@ -362,7 +398,7 @@ pub(crate) async fn send_email_payment_reminder(
     }
 
     let (selected_entries, skipped_no_email_count) =
-        select_email_reminder_entries(entries, input.recipient_user_ids)?;
+        select_email_reminder_entries(entries, recipient_user_ids)?;
     let reminders: Vec<PaymentReminderEmail> = selected_entries
         .into_iter()
         .map(|entry| PaymentReminderEmail {
@@ -381,11 +417,11 @@ pub(crate) async fn send_email_payment_reminder(
         &reminders,
     )
     .await?;
-    Ok(Json(EmailPaymentReminderResponse {
+    Ok(EmailPaymentReminderResponse {
         sent_count: delivery.sent_count,
         failed_user_ids: delivery.failed_user_ids,
         skipped_no_email_count,
-    }))
+    })
 }
 
 #[utoipa::path(
@@ -548,7 +584,7 @@ async fn received_payment_entries(
     .collect()
 }
 
-async fn selected_payment_link(state: &AppState, user_id: &str) -> ApiResult<String> {
+pub(crate) async fn selected_payment_link(state: &AppState, user_id: &str) -> ApiResult<String> {
     let row: Option<(String,)> = sqlx::query_as(
         "SELECT paypal_link
          FROM users
@@ -849,6 +885,7 @@ mod tests {
                 matrix_webhook_url: None,
                 smtp: None,
                 paypal_link: None,
+                auto_payment_reminder: None,
                 timezone: "UTC".into(),
                 session_ttl: std::time::Duration::from_secs(60),
             },
@@ -1504,6 +1541,80 @@ mod tests {
             assert!(request.contains("- Guest: 0.50 EUR - https://paypal.example/pay/0.50"));
             assert!(!request.contains("- Actor:"));
         }
+    }
+
+    fn reminder_config(payment_link_user_id: &str) -> crate::config::AutoPaymentReminderConfig {
+        crate::config::AutoPaymentReminderConfig {
+            payment_link_user_id: payment_link_user_id.into(),
+            hour: 10,
+        }
+    }
+
+    fn utc_at(y: i32, m: u32, d: u32, h: u32) -> chrono::DateTime<chrono_tz::Tz> {
+        use chrono::TimeZone;
+        chrono_tz::UTC.with_ymd_and_hms(y, m, d, h, 0, 0).unwrap()
+    }
+
+    async fn reminder_run_count(state: &AppState) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM payment_reminder_runs")
+            .fetch_one(&state.db)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn automatic_reminder_posts_once_per_month_on_last_day() {
+        let mut state = state().await;
+        let (webhook_url, receiver) = webhook_probe();
+        state.config.mattermost_webhook_url = Some(webhook_url);
+        sqlx::query(
+            "UPDATE users SET paypal_link = 'https://paypal.example/pay' WHERE id = 'actor'",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        insert_consumption(&state, "target-cup", now_ts() - 10).await;
+        let config = reminder_config("actor");
+
+        assert!(
+            !scheduler::run_if_due(&state, &config, utc_at(2026, 10, 30, 12))
+                .await
+                .unwrap()
+        );
+        assert!(
+            !scheduler::run_if_due(&state, &config, utc_at(2026, 10, 31, 9))
+                .await
+                .unwrap()
+        );
+        assert_eq!(reminder_run_count(&state).await, 0);
+
+        assert!(
+            scheduler::run_if_due(&state, &config, utc_at(2026, 10, 31, 10))
+                .await
+                .unwrap()
+        );
+        let request = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(request.contains("Payment reminder:"));
+        assert!(request.contains("- Target: 0.50 EUR - https://paypal.example/pay/0.50"));
+
+        assert!(
+            !scheduler::run_if_due(&state, &config, utc_at(2026, 10, 31, 15))
+                .await
+                .unwrap()
+        );
+        assert_eq!(reminder_run_count(&state).await, 1);
+    }
+
+    #[tokio::test]
+    async fn automatic_reminder_does_not_claim_month_with_invalid_link_user() {
+        let state = state().await;
+
+        assert!(
+            !scheduler::run_if_due(&state, &reminder_config("target"), utc_at(2026, 10, 31, 10))
+                .await
+                .unwrap()
+        );
+        assert_eq!(reminder_run_count(&state).await, 0);
     }
 
     #[test]

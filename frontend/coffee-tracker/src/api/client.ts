@@ -36,6 +36,7 @@ export type PaymentsResponse = components['schemas']['PaymentsResponse']
 export type MyPaymentResponse = components['schemas']['MyPaymentResponse']
 export type PaymentConfigResponse =
   components['schemas']['PaymentConfigResponse']
+export type AutoReminderInfo = components['schemas']['AutoReminderInfo']
 export type PaymentRecord = components['schemas']['PaymentRecord']
 export type ReceivedPaymentEntry =
   components['schemas']['ReceivedPaymentEntry']

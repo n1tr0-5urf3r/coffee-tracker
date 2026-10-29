@@ -1,4 +1,4 @@
-import { Banknote, CheckCircle2, Copy, ExternalLink, Mail, Plus, ReceiptText, Send } from 'lucide-react'
+import { Banknote, CalendarClock, CheckCircle2, Copy, ExternalLink, Mail, Plus, ReceiptText, Send } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   useCreateExpenseMutation,
@@ -14,6 +14,7 @@ import {
   usePaymentsLinks,
 } from '../api/queries'
 import type {
+  AutoReminderInfo,
   ExpenseEntry,
   ExpenseSummary,
   MyPaymentResponse,
@@ -210,6 +211,7 @@ export function PaymentsPage() {
         emailReminderPending={emailPaymentReminder.isPending}
         emailRemindersConfigured={Boolean(paymentConfig.data?.email_reminders_configured)}
         emailConfigLoading={paymentConfig.isLoading}
+        autoReminder={paymentConfig.data?.auto_reminder ?? null}
         onSendReminder={sendPaymentReminder}
         onOpenEmailReminder={(paymentLinkUserId) =>
           setEmailReminderDraft({
@@ -432,6 +434,7 @@ function PaymentLinkGenerator({
   emailReminderPending,
   emailRemindersConfigured,
   emailConfigLoading,
+  autoReminder,
   onSendReminder,
   onOpenEmailReminder,
 }: {
@@ -443,6 +446,7 @@ function PaymentLinkGenerator({
   emailReminderPending: boolean
   emailRemindersConfigured: boolean
   emailConfigLoading: boolean
+  autoReminder: AutoReminderInfo | null
   onSendReminder: (paymentLinkUserId: string) => void
   onOpenEmailReminder: (paymentLinkUserId: string) => void
 }) {
@@ -557,6 +561,12 @@ function PaymentLinkGenerator({
                   SMTP is not configured.
                 </p>
               ) : null}
+              {autoReminder ? (
+                <p className="col-span-2 flex items-center justify-center gap-1.5 text-center text-xs font-bold text-berry-700 dark:text-rose-100">
+                  <CalendarClock className="size-3.5 shrink-0" />
+                  {autoReminderNote(autoReminder, links)}
+                </p>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -587,6 +597,13 @@ function PaymentLinkGenerator({
       )}
     </Card>
   )
+}
+
+export function autoReminderNote(autoReminder: AutoReminderInfo, links: PaypalLinkEntry[]) {
+  const time = `${String(autoReminder.hour).padStart(2, '0')}:00`
+  const linkOwner = links.find((link) => link.user_id === autoReminder.payment_link_user_id)
+  const via = linkOwner ? ` via ${linkOwner.display_name}'s link` : ''
+  return `Sent automatically on the last day of each month at ${time}${via}.`
 }
 
 export function buildPaymentUrl(baseLink: string, amountCents: number) {
