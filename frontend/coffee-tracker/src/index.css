@@ -25,6 +25,10 @@
   --color-mint: #44c7a4;
   --color-sun: #ffd166;
   --color-sky: #65c7f7;
+
+  /* Seasonal accent (overridden per [data-season] below). Never replaces the brand red. */
+  --color-season: #ffd166;
+  --color-season-soft: color-mix(in srgb, var(--color-season) 24%, white);
   --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
   --shadow-soft: 0 18px 45px rgb(15 23 42 / 12%);
@@ -79,6 +83,95 @@ select:focus-visible {
   background: #c2284a;
 }
 
+/* ---------- Seasonal themes (see src/lib/seasons.ts) ---------- */
+
+:root[data-season='newyear'] { --color-season: #f5b700; }
+:root[data-season='christmas'] { --color-season: #2f8f5b; }
+:root[data-season='easter'] { --color-season: #b79cf2; }
+:root[data-season='halloween'] { --color-season: #f97316; }
+:root[data-season='coffeeday'] { --color-season: #8b5a2b; }
+:root[data-season='winter'] { --color-season: #7cc4e8; }
+:root[data-season='spring'] { --color-season: #44c7a4; }
+:root[data-season='summer'] { --color-season: #ffb703; }
+:root[data-season='autumn'] { --color-season: #d97706; }
+
+:root[data-season] {
+  --season-tint: color-mix(in srgb, var(--color-season) 20%, transparent);
+}
+
+:root.dark[data-season] {
+  --season-tint: color-mix(in srgb, var(--color-season) 12%, transparent);
+}
+
+html[data-season] body {
+  background-image:
+    radial-gradient(circle at 100% 0%, var(--season-tint), transparent 34rem),
+    radial-gradient(circle at 0% 100%, var(--season-tint), transparent 30rem);
+  background-attachment: fixed;
+}
+
+.season-particle {
+  position: absolute;
+  top: 0;
+  line-height: 1;
+  opacity: var(--particle-opacity, 0.45);
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.season-particle[data-motion='fall'] {
+  animation-name: season-fall;
+}
+
+.season-particle[data-motion='drift'] {
+  animation-name: season-drift;
+}
+
+.season-particle[data-motion='twinkle'] {
+  animation-name: season-twinkle;
+  animation-timing-function: ease-in-out;
+}
+
+@keyframes season-fall {
+  from {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(0, 110vh, 0) rotate(360deg);
+  }
+}
+
+@keyframes season-drift {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+  }
+  25% {
+    transform: translate3d(2.5rem, 20vh, 0) rotate(40deg);
+  }
+  50% {
+    transform: translate3d(-1.5rem, 50vh, 0) rotate(-20deg);
+  }
+  75% {
+    transform: translate3d(2rem, 80vh, 0) rotate(30deg);
+  }
+  100% {
+    transform: translate3d(0, 110vh, 0) rotate(0deg);
+  }
+}
+
+@keyframes season-twinkle {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  50% {
+    opacity: var(--particle-opacity, 0.45);
+    transform: scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -87,5 +180,10 @@ select:focus-visible {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+
+  /* The rule above would freeze particles mid-screen; drop the layer entirely. */
+  .season-overlay {
+    display: none;
   }
 }

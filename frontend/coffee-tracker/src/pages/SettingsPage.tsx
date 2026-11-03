@@ -15,6 +15,8 @@ import { Card } from '../components/Card'
 import { LogoMark } from '../components/LogoMark'
 import { PageHeader } from '../components/PageHeader'
 import { useTheme, type ThemeChoice } from '../lib/theme'
+import { useSeasonalTheme } from '../lib/seasonalTheme'
+import { SEASONS } from '../lib/seasons'
 import { useToast } from '../lib/toast'
 import { formatStockValue } from '../lib/stock'
 import {
@@ -28,6 +30,8 @@ export function SettingsPage() {
   const { data } = useMe()
   const settings = useSettingsMutation()
   const { theme, setTheme } = useTheme()
+  const seasonal = useSeasonalTheme()
+  const currentSeason = SEASONS[seasonal.currentSeason]
   const { pushToast } = useToast()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -171,6 +175,14 @@ export function SettingsPage() {
                 onSelect={setTheme}
                 icon={<Moon className="size-5" />}
                 label="Dark"
+              />
+            </div>
+            <div className="mt-4">
+              <ToggleRow
+                label="Seasonal themes"
+                description={`Automatic decorations by date — currently ${currentSeason.emoji} ${currentSeason.label}`}
+                checked={seasonal.enabled}
+                onChange={seasonal.setEnabled}
               />
             </div>
           </Card>

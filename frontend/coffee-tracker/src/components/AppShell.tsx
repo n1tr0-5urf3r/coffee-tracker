@@ -18,6 +18,7 @@ import { LogoMark } from './LogoMark'
 import { cn } from '../lib/cn'
 import { AppFooter } from './AppFooter'
 import { branding } from '../config/branding'
+import { SeasonBadge, SeasonalDecor } from './SeasonalDecor'
 
 export function AppShell() {
   const { data } = useMe()
@@ -51,11 +52,13 @@ export function AppShell() {
   }
 
   return (
-    <div className="min-h-svh pb-24 md:pb-0">
+    <div className="relative isolate min-h-svh pb-24 md:pb-0">
+      <SeasonalDecor className="z-0" />
       <header className="sticky top-0 z-30 border-b border-white/50 bg-surface/82 backdrop-blur-xl dark:border-white/10 dark:bg-berry-950/82">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <LogoMark />
           <div className="hidden items-center gap-3 md:flex">
+            <SeasonBadge />
             <span className="rounded-full bg-white px-4 py-2 text-sm font-bold text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
               {data?.user.display_name ?? 'Coffee friend'}
             </span>
@@ -67,7 +70,7 @@ export function AppShell() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-5 sm:px-6 md:grid-cols-[13rem_1fr] md:py-8">
+      <div className="relative z-10 mx-auto grid max-w-7xl gap-6 px-4 py-5 sm:px-6 md:grid-cols-[13rem_1fr] md:py-8">
         <nav
           aria-label="Main navigation"
           className="fixed inset-x-3 bottom-3 z-40 grid rounded-4xl border-2 border-white/80 bg-white/90 p-2 shadow-soft backdrop-blur md:sticky md:top-24 md:inset-auto md:block md:h-fit md:space-y-2 md:bg-white/70 dark:border-white/10 dark:bg-berry-900/92"

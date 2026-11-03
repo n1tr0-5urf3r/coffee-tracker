@@ -9,6 +9,7 @@ import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { LogoMark } from '../components/LogoMark'
 import { BrandWatermark } from '../components/BrandWatermark'
+import { SeasonalDecor } from '../components/SeasonalDecor'
 import { branding } from '../config/branding'
 import { useToast } from '../lib/toast'
 import { getGuestRecoveryCodeForName, storeGuestRecoveryCode } from '../lib/guestRecovery'
@@ -77,8 +78,9 @@ export function LoginPage() {
   }
 
   return (
-    <main className="relative grid min-h-svh place-items-center overflow-hidden px-4 py-10">
+    <main className="relative isolate grid min-h-svh place-items-center overflow-hidden px-4 py-10">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_10%,rgba(255,209,102,0.45),transparent_26rem)]" />
+      <SeasonalDecor />
       <motion.div
         className="pointer-events-none absolute -right-10 top-8 w-44 rotate-12 opacity-20 sm:w-72 dark:opacity-25"
         animate={{ y: [0, -10, 0], rotate: [12, 8, 12] }}

@@ -16,6 +16,7 @@ import { LogPage } from './pages/LogPage'
 import { PaymentsPage } from './pages/PaymentsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StempelkartePage } from './pages/StempelkartePage'
+import { SeasonalThemeProvider } from './lib/seasonalTheme'
 import { ThemeProvider } from './lib/theme'
 import { ToastProvider } from './lib/toast'
 
@@ -59,13 +60,15 @@ const router = createBrowserRouter([
 function App() {
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          <BackendHealthBoundary>
-            <RouterProvider router={router} />
-          </BackendHealthBoundary>
-        </ToastProvider>
-      </QueryClientProvider>
+      <SeasonalThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <BackendHealthBoundary>
+              <RouterProvider router={router} />
+            </BackendHealthBoundary>
+          </ToastProvider>
+        </QueryClientProvider>
+      </SeasonalThemeProvider>
     </ThemeProvider>
   )
 }
