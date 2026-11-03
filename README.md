@@ -26,7 +26,8 @@
 - **Personal analytics** for totals, caffeine decay, weekday streaks, hourly rhythm, beverage mix, and a calendar heatmap.
 - **Social stats** with an opt-in leaderboard, achievement standings, rare badges, streak races, and coffee-twin matching.
 - **Stempelkarte loyalty card** where every paid drink earns a stamp, the 13th drink of the month is free, and the discount lands straight on the open tab.
-- **Lootboxes and the Locker** with crates earned (never bought): one for every day you log a drink, streak bonuses every five lab days, every 25th drink, achievements, full stamp cards, paid tabs, shopping for the team, weekly machine chores, and Advent calendar doors in December. A case-opening reel reveals one of 80+ purely cosmetic items: avatars, frames, titles, cups, stamp inks, UI skins, and collectibles. Duplicates turn into beans for crafting.
+- **Lootboxes and the Locker** with crates earned (never bought): one for every fifth day you log a drink, streak bonuses every five lab days, every 25th drink, achievements, full stamp cards, paid tabs, shopping for the team, weekly machine chores, lucky wheel prizes, and Advent calendar doors in December. A case-opening reel reveals one of 80+ purely cosmetic items: avatars, frames, titles, cups, stamp inks, UI skins, and collectibles. Duplicates turn into beans for crafting.
+- **Lucky wheel** for team members: grab the wheel and flick it to win crates, a free drink, another spin, or an "Oh noooo… anyway" consolation picture. The first spin is free; after that a spin costs 25 cents on the tab, capped at five a week, with odds shown openly and tilted so the coffee fund always comes out ahead. Staff can follow every draw, the revenue, and the observed odds on the payments page.
 - **Seasonal themes** that switch on by date (Advent, New Year, Easter, Halloween, Internet Day, the seasons, and more) without touching the brand colour, and can be turned off per browser.
 - **Coffee-machine chores board** on the honour system (cleaning, emptying the grounds, refilling water, descaling), where the first member to do each chore in a week claims a crate.
 - **Shared payments** covering open tabs, payment links, settlement history, expenses, and optional email or webhook reminders.
@@ -62,6 +63,12 @@
   </tr>
   <tr>
     <td colspan="2" align="center"><strong>Lootboxes and cosmetics</strong></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/wheel.png" alt="Lucky wheel landing on a free drink"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Lucky wheel</strong></td>
   </tr>
 </table>
 
