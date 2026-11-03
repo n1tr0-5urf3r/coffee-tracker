@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { api, ApiError, type Beverage, type ConsumptionResponse } from '../api/client'
 import { invalidateCoffeeData, useCatalog, useLocker, useMe, useStampCard, useStats } from '../api/queries'
-import { CleaningCard } from '../components/CleaningCard'
+import { ChoresCard } from '../components/ChoresCard'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { todayCountsByBeverage } from '../lib/stats'
@@ -24,6 +24,7 @@ import { stockLabelForBeverage } from '../lib/stock'
 import { currentMonthKey } from '../lib/month'
 import { stampCardProgress, type StampProgress } from '../lib/stampCard'
 import { BeverageIcon } from '../lib/beverageIcons'
+import { describeCrates } from '../lib/cosmetics'
 import {
   compactBeverageName,
   primaryBeveragesFor,
@@ -72,6 +73,8 @@ export function LogPage() {
           machine_id: machineId,
           beverage_id: beverage.id,
           consumed_at: Math.floor(queued.created_at / 1000),
+          // Crates for queued drinks show up once the queue is replayed.
+          crates_earned: [],
         } satisfies ConsumptionResponse
       }
       return api.createConsumption({
@@ -98,6 +101,13 @@ export function LogPage() {
         title: `${beverage.name} logged`,
         description: 'Tiny tap. Properly counted.',
       })
+      if (data.crates_earned.length > 0) {
+        pushToast({
+          tone: 'info',
+          title: `🎁 +${data.crates_earned.length} crate${data.crates_earned.length === 1 ? '' : 's'}`,
+          description: `${describeCrates(data.crates_earned)}. Open them in your Locker.`,
+        })
+      }
       await invalidateCoffeeData(queryClient)
       setOptimisticBeverageId(null)
     },
@@ -210,7 +220,7 @@ export function LogPage() {
         </div>
       ) : null}
 
-      <CleaningCard />
+      <ChoresCard />
 
       <AnimatePresence>
         {cooldownSeconds > 0 ? (

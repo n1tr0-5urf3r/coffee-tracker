@@ -198,11 +198,13 @@ async fn unlock(
     })
 }
 
-const GLOBAL_CRITERIA: [&str; 7] = [
+const GLOBAL_CRITERIA: [&str; 9] = [
+    "advent_doors",
     "stamp_cards_completed",
     "free_drinks_redeemed",
     "shopping_trips",
     "machine_cleanings",
+    "chores_done",
     "lootboxes_opened",
     "legendary_pulls",
     "collection_size",
@@ -249,6 +251,22 @@ async fn global_criteria_met(
                 .await?
             }
             "machine_cleanings" => {
+                count(
+                    state,
+                    "SELECT COUNT(*) FROM machine_cleanings WHERE user_id = ? AND chore = 'clean'",
+                    user_id,
+                )
+                .await?
+            }
+            "advent_doors" => {
+                count(
+                    state,
+                    "SELECT COUNT(*) FROM lootbox_grants WHERE user_id = ? AND source = 'advent'",
+                    user_id,
+                )
+                .await?
+            }
+            "chores_done" => {
                 count(
                     state,
                     "SELECT COUNT(*) FROM machine_cleanings WHERE user_id = ?",

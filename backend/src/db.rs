@@ -554,6 +554,22 @@ async fn seed_achievements(pool: &SqlitePool, now: i64) -> anyhow::Result<()> {
             "calendar_day:10-29",
             1,
         ),
+        (
+            "housekeeping_hero",
+            "Housekeeping hero",
+            "Did 10 chores for the coffee machine.",
+            "Clean, empty, refill, descale: 10 times.",
+            "chores_done",
+            10,
+        ),
+        (
+            "advent_regular",
+            "Door to door",
+            "Opened 12 Advent calendar doors.",
+            "Have a drink on 12 days between 1 and 24 December.",
+            "advent_doors",
+            12,
+        ),
     ];
 
     for (id, name, description, hint, criteria_kind, threshold) in definitions {

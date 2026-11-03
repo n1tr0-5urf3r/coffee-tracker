@@ -8,6 +8,7 @@
 //! be spent to craft a specific item. Cosmetics are purely visual.
 
 pub mod catalog;
+pub mod rewards;
 
 use std::collections::{HashMap, HashSet};
 
@@ -30,6 +31,7 @@ use crate::{
     error::{ApiError, ApiResult},
     loyalty,
     notifications::notify_unlocks,
+    stats::resolve_tz,
 };
 use catalog::{CATALOG, CosmeticDef, Rarity, Slot, TOTAL_WEIGHT};
 
@@ -135,7 +137,13 @@ pub struct LootboxSources {
     pub achievement: i64,
     pub shopping: i64,
     pub stamp_card: i64,
+    /// Weekly chores (cleaning, grounds, water, descaling).
     pub cleaning: i64,
+    pub daily: i64,
+    pub streak: i64,
+    pub advent: i64,
+    pub milestone: i64,
+    pub payment: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -435,10 +443,14 @@ pub async fn ensure_onboarded(state: &AppState, user_id: &str) -> ApiResult<i64>
 /// Idempotent; safe to call on every read. Every unlocked achievement counts
 /// (including ones from before lootboxes existed); shopping trips and full
 /// stamp cards only count from onboarding on.
-pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<()> {
+pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<String>> {
     let onboarded_at = ensure_onboarded(state, user_id).await?;
+    let mut new_grants: Vec<String> = Vec::new();
+    let mut record = |source: &str, count: u64| {
+        new_grants.extend(std::iter::repeat_n(source.to_string(), count as usize));
+    };
 
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
          SELECT lower(hex(randomblob(16))), au.user_id, 'achievement', au.achievement_id, au.unlocked_at
          FROM achievement_unlocks au
@@ -447,9 +459,10 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<()> {
     .bind(user_id)
     .execute(&state.db)
     .await?;
+    record("achievement", result.rows_affected());
     // At most one shopping crate per person and (UTC) day, for purchases of at
     // least 1 EUR, so +1 ct / -1 ct entry pairs can't farm crates.
-    sqlx::query(
+    let result = sqlx::query(
         "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
          SELECT lower(hex(randomblob(16))), user_id, 'shopping',
                 date(logged_at, 'unixepoch'), MIN(logged_at)
@@ -461,26 +474,77 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<()> {
     .bind(onboarded_at)
     .execute(&state.db)
     .await?;
+    record("shopping", result.rows_affected());
+    // Paying your tab keeps the coffee fund alive: one crate per payment >= 1 EUR.
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
+         SELECT lower(hex(randomblob(16))), user_id, 'payment', id, paid_at
+         FROM payments
+         WHERE user_id = ? AND amount_cents >= 100 AND paid_at >= ?",
+    )
+    .bind(user_id)
+    .bind(onboarded_at)
+    .execute(&state.db)
+    .await?;
+    record("payment", result.rows_affected());
 
-    let existing: HashSet<String> = sqlx::query_as::<_, (String,)>(
-        "SELECT source_ref FROM lootbox_grants WHERE user_id = ? AND source = 'stamp_card'",
+    let existing: HashSet<(String, String)> = sqlx::query_as::<_, (String, String)>(
+        "SELECT source, source_ref FROM lootbox_grants
+         WHERE user_id = ? AND source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone')",
     )
     .bind(user_id)
     .fetch_all(&state.db)
     .await?
     .into_iter()
-    .map(|(source_ref,)| source_ref)
     .collect();
+    let mut missing: Vec<(&'static str, String, i64)> = Vec::new();
+
     for month in loyalty::card_progress_by_month(state, user_id).await? {
         for (index, completed_at) in month.card_completed_at.iter().enumerate() {
-            let source_ref = stamp_card_ref(&month.month, index as i64 + 1);
-            if *completed_at < onboarded_at || existing.contains(&source_ref) {
-                continue;
+            if *completed_at >= onboarded_at {
+                missing.push((
+                    "stamp_card",
+                    stamp_card_ref(&month.month, index as i64 + 1),
+                    *completed_at,
+                ));
             }
-            grant(state, user_id, "stamp_card", &source_ref, *completed_at).await?;
         }
     }
-    Ok(())
+
+    let consumed_at: Vec<i64> = sqlx::query_as::<_, (i64,)>(
+        "SELECT consumed_at FROM consumptions WHERE user_id = ? ORDER BY consumed_at ASC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .map(|(timestamp,)| timestamp)
+    .collect();
+    let tz = resolve_tz(&state.config.timezone);
+    let activity = rewards::activity_rewards(&consumed_at, &tz, onboarded_at);
+    let now = now_ts();
+    for day in &activity.daily {
+        missing.push(("daily", day.to_string(), now));
+    }
+    for day in &activity.streak {
+        missing.push(("streak", day.to_string(), now));
+    }
+    for day in &activity.advent {
+        missing.push(("advent", day.to_string(), now));
+    }
+    for (count, timestamp) in &activity.milestones {
+        missing.push(("milestone", count.to_string(), *timestamp));
+    }
+
+    for (source, source_ref, granted_at) in missing {
+        if existing.contains(&(source.to_string(), source_ref.clone())) {
+            continue;
+        }
+        if grant(state, user_id, source, &source_ref, granted_at).await? {
+            new_grants.push(source.to_string());
+        }
+    }
+    Ok(new_grants)
 }
 
 pub fn stamp_card_ref(month: &str, card_index: i64) -> String {
@@ -493,8 +557,8 @@ pub async fn grant(
     source: &str,
     source_ref: &str,
     granted_at: i64,
-) -> ApiResult<()> {
-    sqlx::query(
+) -> ApiResult<bool> {
+    let inserted = sqlx::query(
         "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
          VALUES (?, ?, ?, ?, ?)",
     )
@@ -505,7 +569,7 @@ pub async fn grant(
     .bind(granted_at)
     .execute(&state.db)
     .await?;
-    Ok(())
+    Ok(inserted.rows_affected() > 0)
 }
 
 /// Re-evaluates achievements that depend on the locker (and the grants they earn).
@@ -571,11 +635,23 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
             "shopping" => sources.shopping = count,
             "stamp_card" => sources.stamp_card = count,
             "cleaning" => sources.cleaning = count,
+            "daily" => sources.daily = count,
+            "streak" => sources.streak = count,
+            "advent" => sources.advent = count,
+            "milestone" => sources.milestone = count,
+            "payment" => sources.payment = count,
             _ => {}
         }
     }
-    let boxes_earned =
-        sources.achievement + sources.shopping + sources.stamp_card + sources.cleaning;
+    let boxes_earned = sources.achievement
+        + sources.shopping
+        + sources.stamp_card
+        + sources.cleaning
+        + sources.daily
+        + sources.streak
+        + sources.advent
+        + sources.milestone
+        + sources.payment;
 
     let (boxes_opened,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM lootbox_openings WHERE user_id = ?")
@@ -1019,6 +1095,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn activity_and_paid_tabs_earn_crates_after_onboarding() {
+        let state = state_with_users(&["alice"]).await;
+        let onboarded_at = ensure_onboarded(&state, "alice").await.unwrap();
+        // A full lab week in March 2027 (Mon 1 .. Fri 5), five drinks a day.
+        for day in 1..=5 {
+            let start = chrono_tz::Europe::Berlin
+                .with_ymd_and_hms(2027, 3, day, 9, 0, 0)
+                .unwrap()
+                .timestamp();
+            add_coffees(&state, "alice", 5, start).await;
+        }
+        for (id, cents) in [("tab", 500), ("pennies", 50)] {
+            sqlx::query(
+                "INSERT INTO payments (id, user_id, amount_cents, drink_count, period_end_ts, paid_at, created_at)
+                 VALUES (?, 'alice', ?, 1, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(cents)
+            .bind(onboarded_at + 10)
+            .bind(onboarded_at + 10)
+            .bind(onboarded_at + 10)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+
+        let first = sync_grants(&state, "alice").await.unwrap();
+        assert!(
+            sync_grants(&state, "alice").await.unwrap().is_empty(),
+            "idempotent"
+        );
+        let locker = load_locker(&state, "alice").await.unwrap();
+
+        assert_eq!(locker.sources.daily, 5);
+        assert_eq!(locker.sources.streak, 1); // 5 lab days in a row
+        assert_eq!(locker.sources.milestone, 1); // the 25th drink
+        assert_eq!(locker.sources.stamp_card, 2); // 25 paid drinks in one month
+        assert_eq!(locker.sources.payment, 1); // the 50 ct payment does not count
+        assert_eq!(locker.sources.advent, 0);
+        assert_eq!(first.len() as i64, locker.boxes_earned);
+    }
+
+    #[tokio::test]
+    async fn logging_a_drink_reports_the_crates_it_earned() {
+        let state = state_with_users(&["alice"]).await;
+        ensure_onboarded(&state, "alice").await.unwrap();
+        let (_, response) = crate::consumptions::create_consumption(
+            State(state.clone()),
+            member("alice"),
+            Json(crate::consumptions::CreateConsumptionRequest {
+                machine_id: "main".into(),
+                beverage_id: "coffee".into(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(
+            response
+                .crates_earned
+                .iter()
+                .any(|source| source == "daily")
+        );
+        // The first coffee also unlocks an achievement, which is a crate too.
+        assert!(
+            response
+                .crates_earned
+                .iter()
+                .any(|source| source == "achievement")
+        );
+    }
+
+    #[tokio::test]
     async fn new_users_start_without_a_crate() {
         let state = state_with_users(&["bob"]).await;
         sync_grants(&state, "bob").await.unwrap();
@@ -1044,7 +1192,8 @@ mod tests {
         assert_eq!(locker.sources.achievement, 2);
         assert_eq!(locker.sources.shopping, 1);
         assert_eq!(locker.sources.stamp_card, 1);
-        assert_eq!(locker.boxes_available, 4);
+        assert_eq!(locker.sources.daily, 1); // all 12 coffees on one day
+        assert_eq!(locker.boxes_available, 5);
     }
 
     #[tokio::test]

@@ -12,6 +12,7 @@ use crate::{
     AppState,
     achievements::evaluate_after_consumption,
     auth::CurrentUser,
+    cosmetics::sync_grants,
     db::now_ts,
     error::{ApiError, ApiResult},
     notifications::notify_unlocks,
@@ -37,6 +38,9 @@ pub struct ConsumptionResponse {
     pub machine_id: String,
     pub beverage_id: String,
     pub consumed_at: i64,
+    /// Sources of the crates this drink just earned (e.g. `daily`, `streak`,
+    /// `milestone`, `achievement`), one entry per crate.
+    pub crates_earned: Vec<String>,
 }
 
 #[utoipa::path(
@@ -83,8 +87,14 @@ pub(crate) async fn create_consumption(
     .await?;
 
     decrement_for_beverage(&state, &input.beverage_id).await?;
+    // Activity crates first (daily, streak, Advent, milestone), so achievements
+    // that count them see this drink; then the crates for new achievements.
+    let mut crates_earned = sync_grants(&state, &user.id).await?;
     let unlocks = evaluate_after_consumption(&state, &user, &id, now).await?;
     notify_unlocks(&state, &user, &unlocks).await;
+    if !unlocks.is_empty() {
+        crates_earned.extend(sync_grants(&state, &user.id).await?);
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -94,6 +104,7 @@ pub(crate) async fn create_consumption(
             machine_id: input.machine_id,
             beverage_id: input.beverage_id,
             consumed_at: now,
+            crates_earned,
         }),
     ))
 }

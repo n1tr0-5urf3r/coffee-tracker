@@ -39,7 +39,8 @@ export type LootboxOpenResponse = components['schemas']['LootboxOpenResponse']
 export type CraftResponse = components['schemas']['CraftResponse']
 export type EquipRequest = components['schemas']['EquipRequest']
 export type CleaningStatus = components['schemas']['CleaningStatus']
-export type CleaningResponse = components['schemas']['CleaningResponse']
+export type ChoresResponse = components['schemas']['ChoresResponse']
+export type ChoreLogResponse = components['schemas']['ChoreLogResponse']
 export type StampCard = components['schemas']['StampCard']
 export type StampCardResponse = components['schemas']['StampCardResponse']
 export type LeaderboardResponse = components['schemas']['LeaderboardResponse']
@@ -245,9 +246,9 @@ export const api = {
       method: 'PATCH',
       json: body as unknown as JsonBody,
     }),
-  cleaningStatus: () => request<CleaningStatus>('/api/v1/cleanings/status'),
-  logCleaning: () =>
-    request<CleaningResponse>('/api/v1/cleanings', { method: 'POST' }),
+  chores: () => request<ChoresResponse>('/api/v1/chores'),
+  logChore: (chore: string) =>
+    request<ChoreLogResponse>(`/api/v1/chores/${encodeURIComponent(chore)}`, { method: 'POST' }),
   leaderboard: () => request<LeaderboardResponse>('/api/v1/leaderboard'),
   coffeeTwins: () => request<CoffeeTwinsResponse>('/api/v1/coffee-twins'),
   payments: () => request<PaymentsResponse>('/api/v1/payments'),

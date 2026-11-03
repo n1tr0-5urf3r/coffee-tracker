@@ -26,9 +26,9 @@
 - **Personal analytics** for totals, caffeine decay, weekday streaks, hourly rhythm, beverage mix, and a calendar heatmap.
 - **Social stats** with an opt-in leaderboard, achievement standings, rare badges, streak races, and coffee-twin matching.
 - **Stempelkarte loyalty card** where every paid drink earns a stamp, the 13th drink of the month is free, and the discount lands straight on the open tab.
-- **Lootboxes and the Locker** with crates earned (never bought) for achievements, shopping for the team, full stamp cards, and the first machine cleaning of the week. A case-opening reel reveals one of 80+ purely cosmetic items: avatars, frames, titles, cups, stamp inks, UI skins, and collectibles. Duplicates turn into beans for crafting.
+- **Lootboxes and the Locker** with crates earned (never bought): one for every day you log a drink, streak bonuses every five lab days, every 25th drink, achievements, full stamp cards, paid tabs, shopping for the team, weekly machine chores, and Advent calendar doors in December. A case-opening reel reveals one of 80+ purely cosmetic items: avatars, frames, titles, cups, stamp inks, UI skins, and collectibles. Duplicates turn into beans for crafting.
 - **Seasonal themes** that switch on by date (Advent, New Year, Easter, Halloween, Internet Day, the seasons, and more) without touching the brand colour, and can be turned off per browser.
-- **Machine-cleaning log** on the honour system, where the first member to clean each week claims a crate.
+- **Coffee-machine chores board** on the honour system (cleaning, emptying the grounds, refilling water, descaling), where the first member to do each chore in a week claims a crate.
 - **Shared payments** covering open tabs, payment links, settlement history, expenses, and optional email or webhook reminders.
 - **Stock tracking** that decrements ingredients per drink and sends low-stock alerts when configured thresholds are crossed.
 - **Flexible identity** through GitLab OAuth, Authentik/OpenID Connect, or recoverable guest sessions, with configurable access and staff groups.

@@ -2,9 +2,14 @@ import confetti from 'canvas-confetti'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Bean,
+  CalendarCheck,
   Check,
+  Flame,
   Gift,
   Hammer,
+  HandCoins,
+  Milestone,
+  TreePine,
   Lock,
   PackageOpen,
   ShoppingBasket,
@@ -282,7 +287,7 @@ export function LockerPage() {
                 >
                   {locker.boxes_available > 0
                     ? 'A crate is waiting. Feeling lucky?'
-                    : 'No crates right now. Earn them with achievements, shopping, full stamp cards or by cleaning the machine.'}
+                    : 'No crates right now. Log a drink today, keep your streak, or do a chore at the machine to earn the next one.'}
                 </motion.p>
               )}
             </AnimatePresence>
@@ -345,10 +350,15 @@ export function LockerPage() {
           <Card>
             <p className="mb-3 font-display text-xl font-black">How to earn crates</p>
             <ul className="space-y-2 text-sm font-bold text-berry-700 dark:text-rose-100">
+              <SourceRow icon={<CalendarCheck className="size-4" />} label="Every day you log a drink" count={locker.sources.daily} />
+              <SourceRow icon={<Flame className="size-4" />} label="Streak bonus every 5 lab days" count={locker.sources.streak} />
+              <SourceRow icon={<Milestone className="size-4" />} label="Every 25th drink" count={locker.sources.milestone} />
               <SourceRow icon={<Trophy className="size-4" />} label="Achievement unlocked" count={locker.sources.achievement} />
-              <SourceRow icon={<ShoppingBasket className="size-4" />} label="Shopping for the team" count={locker.sources.shopping} />
               <SourceRow icon={<Stamp className="size-4" />} label="Full Stempelkarte" count={locker.sources.stamp_card} />
-              <SourceRow icon={<WashingMachine className="size-4" />} label="Weekly machine cleaning" count={locker.sources.cleaning} />
+              <SourceRow icon={<HandCoins className="size-4" />} label="Paying your tab" count={locker.sources.payment} />
+              <SourceRow icon={<ShoppingBasket className="size-4" />} label="Shopping for the team" count={locker.sources.shopping} />
+              <SourceRow icon={<WashingMachine className="size-4" />} label="Weekly machine chores" count={locker.sources.cleaning} />
+              <SourceRow icon={<TreePine className="size-4" />} label="Advent calendar (1–24 Dec)" count={locker.sources.advent} />
             </ul>
           </Card>
 

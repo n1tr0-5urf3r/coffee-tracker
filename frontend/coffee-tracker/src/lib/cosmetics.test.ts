@@ -4,6 +4,7 @@ import {
   REEL_LENGTH,
   REEL_WINNER_INDEX,
   buildReel,
+  describeCrates,
   initials,
   pickWeighted,
   reelOffset,
@@ -81,5 +82,15 @@ describe('initials', () => {
     expect(initials('  cher ')).toBe('CH')
     expect(initials('Jean Claude Van Damme')).toBe('JD')
     expect(initials('')).toBe('?')
+  })
+})
+
+describe('describeCrates', () => {
+  it('groups crate sources into a readable list', () => {
+    expect(describeCrates(['daily'])).toBe('Daily crate')
+    expect(describeCrates(['daily', 'achievement', 'achievement', 'streak'])).toBe(
+      'Daily crate + 2× Achievement + Streak bonus',
+    )
+    expect(describeCrates(['mystery'])).toBe('Crate')
   })
 })

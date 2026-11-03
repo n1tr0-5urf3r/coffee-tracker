@@ -132,6 +132,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/chores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["chores_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/chores/{chore}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["log_chore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cleanings": {
         parameters: {
             query?: never;
@@ -806,26 +838,42 @@ export interface components {
             /** Format: double */
             half_life_hours: number;
         };
+        ChoreLogResponse: {
+            board: components["schemas"]["ChoresResponse"];
+            chore: string;
+            /** @description Whether this entry earned the weekly lootbox. */
+            rewarded: boolean;
+            unlocked_achievements: components["schemas"]["AchievementEvent"][];
+        };
+        ChoresResponse: {
+            chores: components["schemas"]["CleaningStatus"][];
+            week: string;
+        };
         CleaningEntry: {
+            chore: string;
             /** Format: int64 */
             cleaned_at: number;
             display_name: string;
             rewarded: boolean;
         };
         CleaningResponse: {
-            /** @description Whether this cleaning earned the weekly lootbox. */
+            /** @description Whether this entry earned the weekly lootbox. */
             rewarded: boolean;
             status: components["schemas"]["CleaningStatus"];
             unlocked_achievements: components["schemas"]["AchievementEvent"][];
         };
+        /** @description State of one chore for the current week. */
         CleaningStatus: {
+            chore: string;
+            label: string;
             /**
              * Format: int64
-             * @description Earliest time the current user may log another cleaning.
+             * @description Earliest time the current user may log this chore again.
              */
             next_allowed_at?: number | null;
+            /** @description Latest entries of this chore. */
             recent: components["schemas"]["CleaningEntry"][];
-            /** @description True while nobody has claimed this week's cleaning lootbox. */
+            /** @description True while nobody has claimed this week's crate for the chore. */
             reward_available: boolean;
             /** Format: int64 */
             reward_claimed_at?: number | null;
@@ -847,6 +895,11 @@ export interface components {
             beverage_id: string;
             /** Format: int64 */
             consumed_at: number;
+            /**
+             * @description Sources of the crates this drink just earned (e.g. `daily`, `streak`,
+             *     `milestone`, `achievement`), one entry per crate.
+             */
+            crates_earned: string[];
             id: string;
             machine_id: string;
             user_id: string;
@@ -1070,11 +1123,24 @@ export interface components {
             /** Format: int64 */
             achievement: number;
             /** Format: int64 */
+            advent: number;
+            /**
+             * Format: int64
+             * @description Weekly chores (cleaning, grounds, water, descaling).
+             */
             cleaning: number;
+            /** Format: int64 */
+            daily: number;
+            /** Format: int64 */
+            milestone: number;
+            /** Format: int64 */
+            payment: number;
             /** Format: int64 */
             shopping: number;
             /** Format: int64 */
             stamp_card: number;
+            /** Format: int64 */
+            streak: number;
         };
         Machine: {
             id: string;
@@ -1514,6 +1580,61 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BeveragesResponse"];
                 };
+            };
+        };
+    };
+    chores_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChoresResponse"];
+                };
+            };
+        };
+    };
+    log_chore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description clean, grounds, water or descale */
+                chore: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChoreLogResponse"];
+                };
+            };
+            /** @description Unknown chore */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Logged this chore too recently */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

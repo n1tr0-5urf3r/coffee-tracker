@@ -149,3 +149,28 @@ export function reelOffset({
   const pitch = tileWidth + gap
   return -(index * pitch + tileWidth / 2 - viewportWidth / 2 + jitter)
 }
+
+/** Human-readable names of `lootbox_grants.source` values. */
+export const CRATE_SOURCE_LABELS: Record<string, string> = {
+  achievement: 'Achievement',
+  shopping: 'Shopping trip',
+  stamp_card: 'Full Stempelkarte',
+  cleaning: 'Weekly chore',
+  daily: 'Daily crate',
+  streak: 'Streak bonus',
+  advent: 'Advent calendar door',
+  milestone: 'Drink milestone',
+  payment: 'Paid tab',
+}
+
+/** "Daily crate + 2× Achievement" for a list of crate sources. */
+export function describeCrates(sources: string[]) {
+  const counts = new Map<string, number>()
+  for (const source of sources) counts.set(source, (counts.get(source) ?? 0) + 1)
+  return [...counts.entries()]
+    .map(([source, count]) => {
+      const label = CRATE_SOURCE_LABELS[source] ?? 'Crate'
+      return count > 1 ? `${count}× ${label}` : label
+    })
+    .join(' + ')
+}

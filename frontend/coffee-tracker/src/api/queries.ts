@@ -31,7 +31,7 @@ export const queryKeys = {
   globalBeverages: (range: GlobalRange) => ['stats', 'global-beverages', range] as const,
   achievements: ['achievements'] as const,
   locker: ['locker'] as const,
-  cleaning: ['cleaning'] as const,
+  chores: ['chores'] as const,
   stampCard: (month: string) => ['stempelkarte', month] as const,
   leaderboard: ['leaderboard'] as const,
   coffeeTwins: ['coffeeTwins'] as const,
@@ -334,16 +334,16 @@ export function useEquipMutation() {
   })
 }
 
-export function useCleaningStatus() {
-  return useQuery({ queryKey: queryKeys.cleaning, queryFn: api.cleaningStatus })
+export function useChores() {
+  return useQuery({ queryKey: queryKeys.chores, queryFn: api.chores })
 }
 
-export function useLogCleaningMutation() {
+export function useLogChoreMutation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => api.logCleaning(),
+    mutationFn: (chore: string) => api.logChore(chore),
     onSuccess: (data) => {
-      queryClient.setQueryData(queryKeys.cleaning, data.status)
+      queryClient.setQueryData(queryKeys.chores, data.board)
       void queryClient.invalidateQueries({ queryKey: queryKeys.locker })
       void queryClient.invalidateQueries({ queryKey: queryKeys.achievements })
     },
