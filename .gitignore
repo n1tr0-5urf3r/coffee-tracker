@@ -7,6 +7,9 @@
 logo.png
 /branding/*
 !/branding/.gitkeep
+# Private avatar artwork (team photos, third-party stickers) - never publish.
+/cosmetics_private/*
+!/cosmetics_private/README.md
 .codex
 docker-compose.local.yml
 docker-compose.deploy.yml

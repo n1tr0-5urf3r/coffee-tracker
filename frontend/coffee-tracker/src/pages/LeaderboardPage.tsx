@@ -13,6 +13,7 @@ import { PageHeader } from '../components/PageHeader'
 import { useCoffeeTwins, useLeaderboard, useMe } from '../api/queries'
 import type { CoffeeTwinsResponse, LeaderboardResponse } from '../api/client'
 import { cn } from '../lib/cn'
+import { UserAvatar } from '../components/UserAvatar'
 import { formatUnixDate } from '../lib/date'
 import { branding } from '../config/branding'
 
@@ -115,8 +116,18 @@ function CoffeeRanking({ data }: { data: LeaderboardData }) {
               index === 2 && 'bg-mint text-berry-950 sm:order-3 sm:pb-5',
             )}
           >
-            <Crown className="mx-auto mb-3 size-7" />
-            <p className="font-display text-xl font-black">{entry.display_name}</p>
+            <UserAvatar
+              name={entry.display_name}
+              artworkPath={entry.cosmetics.avatar_artwork}
+              frameId={entry.cosmetics.frame}
+              size="lg"
+              className="mx-auto mb-3"
+            />
+            <p className="flex items-center justify-center gap-1 font-display text-xl font-black">
+              {index === 0 ? <Crown className="size-5 shrink-0" aria-label="First place" /> : null}
+              {entry.display_name}
+            </p>
+            <PlayerTitle title={entry.cosmetics.title} />
             <p className="text-sm font-black">{entry.coffee_count} coffees</p>
           </div>
         ))}
@@ -127,8 +138,18 @@ function CoffeeRanking({ data }: { data: LeaderboardData }) {
             key={entry.user_id}
             className="flex flex-wrap items-center justify-between gap-2 rounded-3xl bg-berry-100 px-4 py-3 dark:bg-white/10"
           >
-            <span className="min-w-0 break-words font-black">
-              #{entry.rank} {entry.display_name}
+            <span className="flex min-w-0 items-center gap-3 font-black">
+              <span className="w-8 shrink-0 tabular-nums">#{entry.rank}</span>
+              <UserAvatar
+                name={entry.display_name}
+                artworkPath={entry.cosmetics.avatar_artwork}
+                frameId={entry.cosmetics.frame}
+                size="sm"
+              />
+              <span className="min-w-0">
+                <span className="block break-words">{entry.display_name}</span>
+                <PlayerTitle title={entry.cosmetics.title} align="left" />
+              </span>
             </span>
             <span className="font-display font-black">{entry.coffee_count}</span>
           </div>
@@ -204,13 +225,22 @@ function AchievementStandings({ data }: { data: LeaderboardData }) {
               tabIndex={0}
               className="group relative grid gap-2 rounded-3xl bg-berry-100 p-4 outline-none ring-primary/0 transition focus-within:ring-2 hover:bg-berry-50 focus:ring-2 dark:bg-white/10 dark:hover:bg-white/15 sm:grid-cols-[auto_1fr_auto] sm:items-center"
             >
-              <span className="font-display text-xl font-black text-primary dark:text-blush">
-                #{entry.rank}
+              <span className="flex items-center gap-3">
+                <span className="font-display text-xl font-black text-primary dark:text-blush">
+                  #{entry.rank}
+                </span>
+                <UserAvatar
+                  name={entry.display_name}
+                  artworkPath={entry.cosmetics.avatar_artwork}
+                  frameId={entry.cosmetics.frame}
+                  size="sm"
+                />
               </span>
               <div className="min-w-0">
                 <p className="break-words font-display text-lg font-black">
                   {entry.display_name}
                 </p>
+                <PlayerTitle title={entry.cosmetics.title} align="left" />
                 <p className="text-sm font-bold text-berry-700 dark:text-rose-100">
                   Latest: {formatDate(entry.latest_unlocked_at)}
                 </p>
@@ -238,7 +268,7 @@ function LeaderboardTooltip(props: unknown) {
   type Item = { name?: string; value?: number | string; color?: string }
 
   return (
-    <div className="rounded-2xl border border-berry-100 bg-[#fffdf8] p-3 text-sm text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-950 dark:text-berry-50">
+    <div className="rounded-2xl border border-berry-100 bg-card p-3 text-sm text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-950 dark:text-berry-50">
       {label ? (
         <div className="mb-2 text-xs font-black text-primary dark:text-blush">
           {label}
@@ -271,7 +301,7 @@ function AchievementUnlockHover({ entry }: { entry: AchievementEntry }) {
   const unlocks = entry.unlocks ?? []
 
   return (
-    <div className="pointer-events-none absolute left-3 right-3 top-[calc(100%-0.25rem)] z-30 hidden rounded-3xl border-2 border-berry-100 bg-[#fffdf8] p-4 text-berry-950 opacity-0 shadow-soft transition group-hover:pointer-events-auto group-hover:block group-hover:opacity-100 group-focus:pointer-events-auto group-focus:block group-focus:opacity-100 dark:border-white/10 dark:bg-berry-950 dark:text-berry-50 md:left-auto md:right-4 md:top-3 md:w-80">
+    <div className="pointer-events-none absolute left-3 right-3 top-[calc(100%-0.25rem)] z-30 hidden rounded-3xl border-2 border-berry-100 bg-card p-4 text-berry-950 opacity-0 shadow-soft transition group-hover:pointer-events-auto group-hover:block group-hover:opacity-100 group-focus:pointer-events-auto group-focus:block group-focus:opacity-100 dark:border-white/10 dark:bg-berry-950 dark:text-berry-50 md:left-auto md:right-4 md:top-3 md:w-80">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="font-display text-lg font-black">Unlocked badges</p>
         <p className="text-sm font-black text-primary dark:text-blush">
@@ -377,12 +407,20 @@ function CoffeeTwinsPanel({
           {twins.map((twin) => (
             <div
               key={twin.user_id}
-              className="rounded-3xl bg-berry-100 p-4 dark:bg-white/10"
+              className="flex items-center gap-3 rounded-3xl bg-berry-100 p-4 dark:bg-white/10"
             >
+              <UserAvatar
+                name={twin.display_name}
+                artworkPath={twin.cosmetics.avatar_artwork}
+                frameId={twin.cosmetics.frame}
+                size="md"
+              />
+              <div className="min-w-0">
               <p className="font-display text-lg font-black">{twin.display_name}</p>
               <p className="text-sm font-bold text-berry-700 dark:text-rose-100">
                 {(twin.similarity * 100).toFixed(1)}% similar
               </p>
+              </div>
             </div>
           ))}
         </div>
@@ -405,4 +443,18 @@ function EmptyPanel({ text }: { text: string }) {
 
 function formatDate(timestamp: number | null | undefined) {
   return formatUnixDate(timestamp)
+}
+
+function PlayerTitle({ title, align = 'center' }: { title?: string | null; align?: 'left' | 'center' }) {
+  if (!title) return null
+  return (
+    <span
+      className={cn(
+        'block text-xs font-black italic opacity-80',
+        align === 'center' ? 'text-center' : 'text-left',
+      )}
+    >
+      “{title}”
+    </span>
+  )
 }

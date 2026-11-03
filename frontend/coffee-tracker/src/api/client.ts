@@ -27,6 +27,19 @@ export type GlobalRange = '30' | 'all'
 export type AchievementsResponse = components['schemas']['AchievementsResponse']
 export type AchievementItem = components['schemas']['AchievementItem']
 export type Stamp = components['schemas']['Stamp']
+export type AchievementEvent = components['schemas']['AchievementEvent']
+export type CosmeticSlot = components['schemas']['Slot']
+export type Rarity = components['schemas']['Rarity']
+export type CosmeticItem = components['schemas']['CosmeticItem']
+export type EquippedCosmetics = components['schemas']['EquippedCosmetics']
+export type PublicCosmetics = components['schemas']['PublicCosmetics']
+export type RarityInfo = components['schemas']['RarityInfo']
+export type LockerResponse = components['schemas']['LockerResponse']
+export type LootboxOpenResponse = components['schemas']['LootboxOpenResponse']
+export type CraftResponse = components['schemas']['CraftResponse']
+export type EquipRequest = components['schemas']['EquipRequest']
+export type CleaningStatus = components['schemas']['CleaningStatus']
+export type CleaningResponse = components['schemas']['CleaningResponse']
 export type StampCard = components['schemas']['StampCard']
 export type StampCardResponse = components['schemas']['StampCardResponse']
 export type LeaderboardResponse = components['schemas']['LeaderboardResponse']
@@ -65,6 +78,11 @@ export type UpdateStockRequest = components['schemas']['UpdateStockRequest']
 export type VersionResponse = components['schemas']['VersionResponse']
 
 const apiBaseUrl = runtimeConfig.API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? ''
+
+/** Absolute URL for a backend path such as `api/v1/...` (leading slash optional). */
+export function apiUrl(path: string) {
+  return `${apiBaseUrl}/${path.replace(/^\//, '')}`
+}
 
 export class ApiError extends Error {
   status: number
@@ -214,6 +232,22 @@ export const api = {
         ? `/api/v1/stempelkarte/me?month=${encodeURIComponent(month)}`
         : '/api/v1/stempelkarte/me',
     ),
+  locker: () => request<LockerResponse>('/api/v1/cosmetics/me'),
+  openLootbox: () =>
+    request<LootboxOpenResponse>('/api/v1/lootboxes/open', { method: 'POST' }),
+  craftCosmetic: (itemId: string) =>
+    request<CraftResponse>('/api/v1/cosmetics/craft', {
+      method: 'POST',
+      json: { item_id: itemId },
+    }),
+  equipCosmetic: (body: EquipRequest) =>
+    request<LockerResponse>('/api/v1/cosmetics/equipped', {
+      method: 'PATCH',
+      json: body as unknown as JsonBody,
+    }),
+  cleaningStatus: () => request<CleaningStatus>('/api/v1/cleanings/status'),
+  logCleaning: () =>
+    request<CleaningResponse>('/api/v1/cleanings', { method: 'POST' }),
   leaderboard: () => request<LeaderboardResponse>('/api/v1/leaderboard'),
   coffeeTwins: () => request<CoffeeTwinsResponse>('/api/v1/coffee-twins'),
   payments: () => request<PaymentsResponse>('/api/v1/payments'),

@@ -1,10 +1,11 @@
 import { Copy, HelpCircle, KeyRound, LogOut, Moon, Package, Save, Sun, SunMoon } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, isBackendUnavailableError } from '../api/client'
 import {
   queryKeys,
+  useLocker,
   useMe,
   useSettingsMutation,
   useStock,
@@ -12,7 +13,8 @@ import {
 } from '../api/queries'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
-import { LogoMark } from '../components/LogoMark'
+import { UserAvatar } from '../components/UserAvatar'
+import { equippedAvatarArtwork } from '../lib/cosmetics'
 import { PageHeader } from '../components/PageHeader'
 import { useTheme, type ThemeChoice } from '../lib/theme'
 import { useSeasonalTheme } from '../lib/seasonalTheme'
@@ -28,6 +30,7 @@ import { branding } from '../config/branding'
 
 export function SettingsPage() {
   const { data } = useMe()
+  const { data: locker } = useLocker()
   const settings = useSettingsMutation()
   const { theme, setTheme } = useTheme()
   const seasonal = useSeasonalTheme()
@@ -141,7 +144,14 @@ export function SettingsPage() {
       <div className="space-y-5">
         <div className="grid gap-5 xl:grid-cols-2">
           <Card className="flex min-h-28 items-center gap-4 p-4 sm:p-5">
-            <LogoMark label={false} className="shrink-0 scale-75" />
+            <Link to="/locker" aria-label="Change profile picture in the locker" className="shrink-0">
+              <UserAvatar
+                name={user?.display_name ?? 'Coffee friend'}
+                artworkPath={equippedAvatarArtwork(locker)}
+                frameId={locker?.equipped.frame}
+                size="lg"
+              />
+            </Link>
             <div className="min-w-0">
               <p className="break-words font-display text-xl font-black">
                 {user?.display_name}
@@ -273,7 +283,7 @@ export function SettingsPage() {
                     value={paypalDraft}
                     onChange={(e) => setPaypalDraft(e.target.value)}
                     placeholder="https://www.paypal.com/paypalme/YourName"
-                    className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 dark:bg-berry-950 dark:text-rose-50"
+                    className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 dark:bg-berry-950 dark:text-rose-50"
                   />
                   <Button
                     onClick={() => savePaypal()}
@@ -398,7 +408,7 @@ function StockSettings({ canEdit }: { canEdit: boolean }) {
             <select
               value={selectedStockId}
               onChange={(event) => setSelectedStockId(event.target.value)}
-              className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
+              className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
             >
               {stock.data.items.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -479,7 +489,7 @@ function StockNumberInput({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 disabled:bg-berry-50 disabled:opacity-75 dark:bg-berry-950 dark:text-rose-50 dark:disabled:bg-berry-900"
+        className="min-h-11 w-full rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 disabled:bg-berry-50 disabled:opacity-75 dark:bg-berry-950 dark:text-rose-50 dark:disabled:bg-berry-900"
       />
     </label>
   )
@@ -539,7 +549,7 @@ function ThemeButton({
       onClick={() => onSelect(value)}
       className={`flex min-h-16 items-center justify-center gap-2 rounded-3xl border-2 px-4 font-display font-black transition ${current === value
         ? 'border-primary bg-primary text-white dark:border-blush dark:bg-blush dark:text-berry-950'
-        : 'border-primary/10 bg-[#fffdf8] text-berry-950 hover:border-primary/30 dark:bg-white/10 dark:text-berry-50'
+        : 'border-primary/10 bg-card text-berry-950 hover:border-primary/30 dark:bg-white/10 dark:text-berry-50'
         }`}
     >
       {icon}

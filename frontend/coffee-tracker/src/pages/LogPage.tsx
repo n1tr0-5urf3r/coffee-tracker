@@ -11,7 +11,8 @@ import {
   X,
 } from 'lucide-react'
 import { api, ApiError, type Beverage, type ConsumptionResponse } from '../api/client'
-import { invalidateCoffeeData, useCatalog, useMe, useStampCard, useStats } from '../api/queries'
+import { invalidateCoffeeData, useCatalog, useLocker, useMe, useStampCard, useStats } from '../api/queries'
+import { CleaningCard } from '../components/CleaningCard'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { todayCountsByBeverage } from '../lib/stats'
@@ -37,6 +38,8 @@ export function LogPage() {
   const queryClient = useQueryClient()
   const { pushToast } = useToast()
   const { data: me } = useMe()
+  const { data: locker } = useLocker()
+  const cupGlyph = locker?.items.find((item) => item.id === locker.equipped.cup)?.glyph ?? null
   const { machines, beverages } = useCatalog()
   const stats = useStats()
   const { queuedLogs, refreshQueue, cancelQueuedLog } = useOfflineQueue()
@@ -187,6 +190,7 @@ export function LogPage() {
               onClick={() => logMutation.mutate(beverage)}
               todayCount={todayCounts.get(beverage.id) ?? 0}
               free={nextIsFree && beverage.price_cents > 0}
+              cupGlyph={cupGlyph}
             />
           ))}
         </div>
@@ -205,6 +209,8 @@ export function LogPage() {
           ))}
         </div>
       ) : null}
+
+      <CleaningCard />
 
       <AnimatePresence>
         {cooldownSeconds > 0 ? (
@@ -321,7 +327,7 @@ function CooldownOverlay({
         initial={{ opacity: 0, y: -10, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: -10, scale: 0.96 }}
-        className="rounded-full border border-berry-100 bg-[#fffdf8]/95 px-3 py-2 text-berry-950 shadow-soft backdrop-blur dark:border-white/10 dark:bg-berry-900/95 dark:text-berry-50"
+        className="rounded-full border border-berry-100 bg-card/95 px-3 py-2 text-berry-950 shadow-soft backdrop-blur dark:border-white/10 dark:bg-berry-900/95 dark:text-berry-50"
       >
         <div className="flex items-center gap-3">
           <CountdownRing seconds={seconds} progress={progress} />
@@ -359,7 +365,7 @@ function UndoOverlay({
         initial={{ opacity: 0, y: -10, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: -10, scale: 0.96 }}
-        className="pointer-events-auto flex max-w-[calc(100vw-2rem)] items-center justify-center gap-3 rounded-full border border-mint/35 bg-[#fffdf8]/95 px-3 py-2 text-left text-berry-950 shadow-soft backdrop-blur transition hover:border-mint hover:bg-white disabled:pointer-events-none disabled:opacity-55 dark:border-white/10 dark:bg-berry-900/95 dark:text-berry-50 dark:hover:bg-berry-900"
+        className="pointer-events-auto flex max-w-[calc(100vw-2rem)] items-center justify-center gap-3 rounded-full border border-mint/35 bg-card/95 px-3 py-2 text-left text-berry-950 shadow-soft backdrop-blur transition hover:border-mint hover:bg-white disabled:pointer-events-none disabled:opacity-55 dark:border-white/10 dark:bg-berry-900/95 dark:text-berry-50 dark:hover:bg-berry-900"
       >
         <CountdownRing seconds={seconds} progress={progress} />
         <span className="min-w-0 pr-2">
@@ -423,12 +429,15 @@ function PrimaryBeverageButton({
   onClick,
   todayCount,
   free = false,
+  cupGlyph = null,
 }: {
   beverage: Beverage
   disabled: boolean
   onClick: () => void
   todayCount: number
   free?: boolean
+  /** Emoji of the equipped cup cosmetic; falls back to the beverage icon. */
+  cupGlyph?: string | null
 }) {
   const displayName = compactBeverageName(beverage)
   return (
@@ -439,7 +448,7 @@ function PrimaryBeverageButton({
       aria-label={`Log ${beverage.name}`}
       whileTap={{ scale: 0.97 }}
       whileHover={{ y: -3 }}
-      className="group flex min-h-48 w-full cursor-pointer flex-col items-stretch overflow-hidden rounded-4xl border-4 border-primary bg-[#fffdf8] text-left text-berry-950 shadow-button ring-2 ring-primary/20 transition hover:bg-white hover:shadow-soft active:translate-y-1 disabled:pointer-events-none disabled:opacity-55 sm:min-h-56 dark:bg-berry-900 dark:text-berry-50 dark:hover:bg-[#202431]"
+      className="group flex min-h-48 w-full cursor-pointer flex-col items-stretch overflow-hidden rounded-4xl border-4 border-primary bg-card text-left text-berry-950 shadow-button ring-2 ring-primary/20 transition hover:bg-white hover:shadow-soft active:translate-y-1 disabled:pointer-events-none disabled:opacity-55 sm:min-h-56 dark:bg-berry-900 dark:text-berry-50 dark:hover:bg-[#202431]"
     >
       <div className="flex grow flex-col justify-between gap-3 p-4 sm:gap-4 sm:p-6">
         <div className="flex items-center justify-between gap-3">
@@ -452,6 +461,7 @@ function PrimaryBeverageButton({
           <p className="min-w-0 break-words font-display text-xl font-black leading-tight sm:text-4xl">
             {displayName}
           </p>
+          <CupMark cupGlyph={cupGlyph} beverageId={beverage.id} className="hidden sm:block" />
         </div>
       </div>
       <span className="flex min-h-14 items-center justify-center gap-2 bg-primary px-3 py-3 text-center font-display text-sm font-black uppercase tracking-[0.08em] text-white transition group-hover:bg-secondary dark:bg-blush dark:text-berry-950">
@@ -459,7 +469,11 @@ function PrimaryBeverageButton({
         Log drink
       </span>
       <div className="flex items-center justify-between border-t border-primary/25 px-4 py-3 text-xs font-black uppercase tracking-[0.16em] text-berry-700 sm:px-6 dark:border-white/10 dark:text-rose-100">
-        <span>Today</span>
+        <span className="flex items-center gap-2">
+          {/* On phones the name needs the full width, so the cup sits here. */}
+          <CupMark cupGlyph={cupGlyph} beverageId={beverage.id} className="sm:hidden" compact />
+          Today
+        </span>
         <motion.span
           key={todayCount}
           initial={{ scale: 0.85, opacity: 0.5 }}
@@ -493,7 +507,7 @@ function BeverageButton({
       whileTap={{ scale: 0.94 }}
       whileHover={{ y: -3 }}
       className={cn(
-        'min-h-32 cursor-pointer rounded-4xl border-2 border-berry-100 bg-[#fffdf8] p-5 text-left text-berry-950 shadow-soft transition hover:border-primary hover:bg-white active:translate-y-1 disabled:pointer-events-none disabled:opacity-55',
+        'min-h-32 cursor-pointer rounded-4xl border-2 border-berry-100 bg-card p-5 text-left text-berry-950 shadow-soft transition hover:border-primary hover:bg-white active:translate-y-1 disabled:pointer-events-none disabled:opacity-55',
         'dark:border-white/10 dark:bg-berry-900 dark:text-berry-50 dark:hover:bg-[#202431]',
         free && 'border-mint',
       )}
@@ -511,5 +525,43 @@ function BeverageButton({
         Log drink
       </span>
     </motion.button>
+  )
+}
+
+/** Equipped cup cosmetic, or the beverage icon when none is equipped. */
+function CupMark({
+  cupGlyph,
+  beverageId,
+  className,
+  compact = false,
+}: {
+  cupGlyph: string | null
+  beverageId: string
+  className?: string
+  compact?: boolean
+}) {
+  if (cupGlyph) {
+    return (
+      <span
+        aria-hidden="true"
+        className={cn(
+          'shrink-0 leading-none transition group-hover:-rotate-6',
+          compact ? 'text-2xl' : 'text-6xl',
+          className,
+        )}
+      >
+        {cupGlyph}
+      </span>
+    )
+  }
+  return (
+    <BeverageIcon
+      beverageId={beverageId}
+      className={cn(
+        'shrink-0 text-primary/70 transition group-hover:-rotate-6 dark:text-blush/70',
+        compact ? 'size-5' : 'size-12',
+        className,
+      )}
+    />
   )
 }

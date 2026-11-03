@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 use crate::{
     AppState,
     auth::CurrentUser,
+    cosmetics::{PublicCosmetics, public_cosmetics_by_user},
     db::now_ts,
     error::{ApiError, ApiResult},
     stats::resolve_tz,
@@ -26,6 +27,7 @@ pub struct LeaderboardEntry {
     pub user_id: String,
     pub display_name: String,
     pub coffee_count: i64,
+    pub cosmetics: PublicCosmetics,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -46,6 +48,7 @@ pub struct StreakLeaderboardEntry {
     pub current_streak_days: i64,
     pub longest_streak_days: i64,
     pub drink_count: i64,
+    pub cosmetics: PublicCosmetics,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -56,6 +59,7 @@ pub struct AchievementLeaderboardEntry {
     pub unlocked_count: i64,
     pub latest_unlocked_at: Option<i64>,
     pub unlocks: Vec<AchievementUnlockSummary>,
+    pub cosmetics: PublicCosmetics,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -94,6 +98,7 @@ pub struct CoffeeTwin {
     pub user_id: String,
     pub display_name: String,
     pub similarity: f64,
+    pub cosmetics: PublicCosmetics,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -122,11 +127,14 @@ pub(crate) async fn leaderboard(
     )
     .fetch_all(&state.db)
     .await?;
+    let public_cosmetics = public_cosmetics_by_user(&state).await?;
+    let cosmetics_for = |user_id: &str| public_cosmetics.get(user_id).cloned().unwrap_or_default();
     let entries = rows
         .into_iter()
         .enumerate()
         .map(|(idx, row)| LeaderboardEntry {
             rank: idx as i64 + 1,
+            cosmetics: cosmetics_for(&row.user_id),
             user_id: row.user_id,
             display_name: row.display_name,
             coffee_count: row.coffee_count,
@@ -156,6 +164,9 @@ pub(crate) async fn leaderboard(
     .fetch_all(&state.db)
     .await?;
     let mut streak_entries = streak_entries(users, consumption_rows, today, &tz);
+    for entry in &mut streak_entries {
+        entry.cosmetics = cosmetics_for(&entry.user_id);
+    }
     let active_streaks = streak_entries
         .iter()
         .filter(|entry| entry.current_streak_days > 0)
@@ -211,6 +222,7 @@ pub(crate) async fn leaderboard(
         .map(|(idx, row)| {
             let unlocks = unlocks_by_user.remove(&row.user_id).unwrap_or_default();
             AchievementLeaderboardEntry {
+                cosmetics: cosmetics_for(&row.user_id),
                 rank: idx as i64 + 1,
                 user_id: row.user_id,
                 display_name: row.display_name,
@@ -337,12 +349,14 @@ pub(crate) async fn coffee_twins(
         return Ok(Json(CoffeeTwinsResponse { twins: Vec::new() }));
     };
 
+    let public_cosmetics = public_cosmetics_by_user(&state).await?;
     let mut twins = vectors
         .into_iter()
         .filter(|(user_id, _)| user_id != &user.id)
         .map(|(user_id, vector)| CoffeeTwin {
             display_name: names.remove(&user_id).unwrap_or_else(|| "Unknown".into()),
             similarity: cosine_similarity(&my_vector, &vector),
+            cosmetics: public_cosmetics.get(&user_id).cloned().unwrap_or_default(),
             user_id,
         })
         .collect::<Vec<_>>();
@@ -458,6 +472,7 @@ fn streak_entries(
                 current_streak_days: streaks.current,
                 longest_streak_days: streaks.longest,
                 drink_count: timestamps.len() as i64,
+                cosmetics: PublicCosmetics::default(),
             })
         })
         .collect::<Vec<_>>();
@@ -603,6 +618,7 @@ mod tests {
                 auto_payment_reminder: None,
                 timezone: "Europe/Berlin".into(),
                 session_ttl: std::time::Duration::from_secs(60),
+                cosmetics_private_dir: "../cosmetics_private".into(),
             },
             db,
             http: reqwest::Client::new(),

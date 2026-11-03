@@ -10,6 +10,7 @@ use crate::{
     AppState,
     auth::CurrentUser,
     error::{ApiError, ApiResult},
+    loyalty,
     stats::{caffeine_decay, resolve_tz},
 };
 
@@ -104,22 +105,7 @@ pub async fn evaluate_after_consumption(
             continue;
         }
         if criteria_met(state, &user.id, consumption_id, &definition, now).await? {
-            sqlx::query(
-                "INSERT OR IGNORE INTO achievement_unlocks
-                 (id, user_id, achievement_id, unlocked_at)
-                 VALUES (?, ?, ?, ?)",
-            )
-            .bind(Uuid::new_v4().to_string())
-            .bind(&user.id)
-            .bind(&definition.id)
-            .bind(now)
-            .execute(&state.db)
-            .await?;
-            unlocked.push(AchievementEvent {
-                id: definition.id,
-                name: definition.name,
-                description: definition.description,
-            });
+            unlocked.push(unlock(state, &user.id, definition, now).await?);
         }
     }
 
@@ -150,26 +136,161 @@ pub async fn evaluate_after_payment(
             continue;
         }
         if payment_criteria_met(state, user_id, &definition, paid_amount_cents).await? {
-            sqlx::query(
-                "INSERT OR IGNORE INTO achievement_unlocks
-                 (id, user_id, achievement_id, unlocked_at)
-                 VALUES (?, ?, ?, ?)",
-            )
-            .bind(Uuid::new_v4().to_string())
-            .bind(user_id)
-            .bind(&definition.id)
-            .bind(now)
-            .execute(&state.db)
-            .await?;
-            unlocked.push(AchievementEvent {
-                id: definition.id,
-                name: definition.name,
-                description: definition.description,
-            });
+            unlocked.push(unlock(state, user_id, definition, now).await?);
         }
     }
 
     Ok(unlocked)
+}
+
+/// Evaluates criteria that do not depend on a specific consumption or payment
+/// (stamp cards, shopping, cleaning, lootboxes, collection). Call it after any
+/// action that may move those counters.
+pub async fn evaluate_global(
+    state: &AppState,
+    user_id: &str,
+    now: i64,
+) -> ApiResult<Vec<AchievementEvent>> {
+    let definitions = sqlx::query_as::<_, AchievementDefinition>(
+        "SELECT id, name, description, criteria_kind, threshold
+         FROM achievement_definitions
+         WHERE active = 1",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut unlocked = Vec::new();
+    for definition in definitions {
+        if !is_global_criteria(&definition.criteria_kind)
+            || is_unlocked(state, user_id, &definition.id).await?
+        {
+            continue;
+        }
+        if global_criteria_met(state, user_id, &definition).await? {
+            unlocked.push(unlock(state, user_id, definition, now).await?);
+        }
+    }
+
+    Ok(unlocked)
+}
+
+async fn unlock(
+    state: &AppState,
+    user_id: &str,
+    definition: AchievementDefinition,
+    now: i64,
+) -> ApiResult<AchievementEvent> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO achievement_unlocks
+         (id, user_id, achievement_id, unlocked_at)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(user_id)
+    .bind(&definition.id)
+    .bind(now)
+    .execute(&state.db)
+    .await?;
+    Ok(AchievementEvent {
+        id: definition.id,
+        name: definition.name,
+        description: definition.description,
+    })
+}
+
+const GLOBAL_CRITERIA: [&str; 7] = [
+    "stamp_cards_completed",
+    "free_drinks_redeemed",
+    "shopping_trips",
+    "machine_cleanings",
+    "lootboxes_opened",
+    "legendary_pulls",
+    "collection_size",
+];
+
+fn is_global_criteria(criteria_kind: &str) -> bool {
+    GLOBAL_CRITERIA.contains(&criteria_kind)
+}
+
+async fn count(state: &AppState, sql: &'static str, user_id: &str) -> ApiResult<i64> {
+    let (value,): (i64,) = sqlx::query_as(sql)
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(value)
+}
+
+async fn global_criteria_met(
+    state: &AppState,
+    user_id: &str,
+    definition: &AchievementDefinition,
+) -> ApiResult<bool> {
+    let threshold = definition.threshold.unwrap_or(1);
+    let value =
+        match definition.criteria_kind.as_str() {
+            "stamp_cards_completed" => loyalty::card_progress_by_month(state, user_id)
+                .await?
+                .iter()
+                .map(|month| month.completed_cards())
+                .sum(),
+            "free_drinks_redeemed" => loyalty::card_progress_by_month(state, user_id)
+                .await?
+                .iter()
+                .map(|month| month.free_drinks())
+                .sum(),
+            "shopping_trips" => {
+                count(
+                    state,
+                    // Distinct days with a real purchase (>= 1 EUR), matching the crate rule.
+                    "SELECT COUNT(DISTINCT date(logged_at, 'unixepoch'))
+                 FROM expense_entries WHERE user_id = ? AND amount_cents >= 100",
+                    user_id,
+                )
+                .await?
+            }
+            "machine_cleanings" => {
+                count(
+                    state,
+                    "SELECT COUNT(*) FROM machine_cleanings WHERE user_id = ?",
+                    user_id,
+                )
+                .await?
+            }
+            "lootboxes_opened" => {
+                count(
+                    state,
+                    "SELECT COUNT(*) FROM lootbox_openings WHERE user_id = ?",
+                    user_id,
+                )
+                .await?
+            }
+            "legendary_pulls" => count(
+                state,
+                "SELECT COUNT(*) FROM lootbox_openings WHERE user_id = ? AND rarity = 'legendary'",
+                user_id,
+            )
+            .await?,
+            "collection_size" => {
+                count(
+                    state,
+                    "SELECT COUNT(*) FROM user_cosmetics WHERE user_id = ?",
+                    user_id,
+                )
+                .await?
+            }
+            _ => return Ok(false),
+        };
+    Ok(value >= threshold)
+}
+
+/// `calendar_day:MM-DD` matches consumptions on that local calendar day.
+fn calendar_day(criteria_kind: &str) -> Option<(u32, u32)> {
+    let (month, day) = criteria_kind
+        .strip_prefix("calendar_day:")?
+        .split_once('-')?;
+    let month = month.parse::<u32>().ok()?;
+    let day = day.parse::<u32>().ok()?;
+    NaiveDate::from_ymd_opt(2024, month, day).map(|_| (month, day))
 }
 
 async fn is_unlocked(state: &AppState, user_id: &str, achievement_id: &str) -> ApiResult<bool> {
@@ -200,6 +321,15 @@ async fn criteria_met(
         .fetch_one(&state.db)
         .await?;
         return Ok(count >= threshold);
+    }
+    if let Some((month, day)) = calendar_day(&definition.criteria_kind) {
+        let Some(dt) = consumption_local_datetime(state, user_id, consumption_id).await? else {
+            return Ok(false);
+        };
+        return Ok(dt.month() == month && dt.day() == day);
+    }
+    if is_global_criteria(&definition.criteria_kind) {
+        return global_criteria_met(state, user_id, definition).await;
     }
     if let Some(hours) = hour_window(&definition.criteria_kind) {
         return Ok(
@@ -609,6 +739,7 @@ mod tests {
                 auto_payment_reminder: None,
                 timezone: "UTC".into(),
                 session_ttl: std::time::Duration::from_secs(60),
+                cosmetics_private_dir: "../cosmetics_private".into(),
             },
             db,
             http: reqwest::Client::new(),

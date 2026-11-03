@@ -3,8 +3,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    AppState, achievements, auth, catalog, consumptions, expenses, loyalty, payments, social,
-    stats, stock, version,
+    AppState, achievements, auth, catalog, cleaning, consumptions, cosmetics, expenses, loyalty,
+    payments, social, stats, stock, version,
 };
 
 pub fn router() -> Router<AppState> {
@@ -44,6 +44,13 @@ pub fn openapi_json() -> String {
         stats::global_buckets,
         stats::global_beverages,
         achievements::my_achievements,
+        cosmetics::my_locker,
+        cosmetics::open_lootbox,
+        cosmetics::craft_cosmetic,
+        cosmetics::equip_cosmetic,
+        cosmetics::private_artwork,
+        cleaning::cleaning_status,
+        cleaning::log_cleaning,
         loyalty::my_stamp_card,
         social::leaderboard,
         social::coffee_twins,
@@ -95,6 +102,22 @@ pub fn openapi_json() -> String {
             loyalty::StampCardResponse,
             achievements::AchievementItem,
             achievements::AchievementsResponse,
+            achievements::AchievementEvent,
+            cosmetics::catalog::Slot,
+            cosmetics::catalog::Rarity,
+            cosmetics::CosmeticItem,
+            cosmetics::EquippedCosmetics,
+            cosmetics::RarityInfo,
+            cosmetics::LootboxSources,
+            cosmetics::LockerResponse,
+            cosmetics::LootboxOpenResponse,
+            cosmetics::CraftRequest,
+            cosmetics::CraftResponse,
+            cosmetics::EquipRequest,
+            cosmetics::PublicCosmetics,
+            cleaning::CleaningEntry,
+            cleaning::CleaningStatus,
+            cleaning::CleaningResponse,
             social::LeaderboardEntry,
             social::StreakLeaderboardEntry,
             social::AchievementLeaderboardEntry,

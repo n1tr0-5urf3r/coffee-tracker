@@ -26,6 +26,9 @@
 - **Personal analytics** for totals, caffeine decay, weekday streaks, hourly rhythm, beverage mix, and a calendar heatmap.
 - **Social stats** with an opt-in leaderboard, achievement standings, rare badges, streak races, and coffee-twin matching.
 - **Stempelkarte loyalty card** where every paid drink earns a stamp, the 13th drink of the month is free, and the discount lands straight on the open tab.
+- **Lootboxes and the Locker** with crates earned (never bought) for achievements, shopping for the team, full stamp cards, and the first machine cleaning of the week. A case-opening reel reveals one of 80+ purely cosmetic items: avatars, frames, titles, cups, stamp inks, UI skins, and collectibles. Duplicates turn into beans for crafting.
+- **Seasonal themes** that switch on by date (Advent, New Year, Easter, Halloween, Internet Day, the seasons, and more) without touching the brand colour, and can be turned off per browser.
+- **Machine-cleaning log** on the honour system, where the first member to clean each week claims a crate.
 - **Shared payments** covering open tabs, payment links, settlement history, expenses, and optional email or webhook reminders.
 - **Stock tracking** that decrements ingredients per drink and sends low-stock alerts when configured thresholds are crossed.
 - **Flexible identity** through GitLab OAuth, Authentik/OpenID Connect, or recoverable guest sessions, with configurable access and staff groups.
@@ -53,6 +56,12 @@
   </tr>
   <tr>
     <td colspan="2" align="center"><strong>Stamp cards and free drinks</strong></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/locker.png" alt="Locker with the lootbox reel landing on an epic avatar"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Lootboxes and cosmetics</strong></td>
   </tr>
 </table>
 
@@ -98,6 +107,7 @@ All deployment-specific values live in `.env`; see [`.env.example`](.env.example
 | Authentication | `GITLAB_*`, `AUTHENTIK_*`, `AUTH_ALLOWED_GROUPS`, `AUTH_STAFF_GROUPS`                         |
 | Integrations   | `MATTERMOST_WEBHOOK_URL`, `MATRIX_WEBHOOK_URL`, `PAYPAL_LINK`, `SMTP_*`                       |
 | Runtime        | `SESSION_SECRET`, `TIMEZONE`                                                                  |
+| Cosmetics      | `COSMETICS_PRIVATE_DIR` for optional private avatar artwork (see below)                       |
 
 OAuth callback URLs are:
 
@@ -105,6 +115,10 @@ OAuth callback URLs are:
 https://your-coffee-host.example/api/v1/auth/gitlab/callback
 https://your-coffee-host.example/api/v1/auth/authentik/callback
 ```
+
+### Private avatar artwork
+
+Some avatars can use images that must not be published, such as team photos or licensed stickers. Mark the item with `private_item` in [`backend/src/cosmetics/catalog.rs`](backend/src/cosmetics/catalog.rs) and drop `<item id>.webp` into `COSMETICS_PRIVATE_DIR` (default `./cosmetics_private`, gitignored). The folder is mounted read-only into the backend. The images are served only to signed-in members via `/api/v1/cosmetics/artwork/<id>`, and guests never see or roll these items. If a file is missing, the avatar falls back to the user's initials. See [`cosmetics_private/README.md`](cosmetics_private/README.md).
 
 ## Support the project
 

@@ -55,7 +55,11 @@ services:
       AUTO_PAYMENT_REMINDER_HOUR: ${AUTO_PAYMENT_REMINDER_HOUR:-10}
       TIMEZONE: ${TIMEZONE:-Europe/Berlin}
       TZ: ${TIMEZONE:-Europe/Berlin}
+      COSMETICS_PRIVATE_DIR: /cosmetics_private
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./coffee_data:/data
+      # Private avatar artwork, kept out of git and the public images and served
+      # to members only by the backend (see cosmetics_private/README.md).
+      - ${COSMETICS_PRIVATE_DIR:-./cosmetics_private}:/cosmetics_private:ro

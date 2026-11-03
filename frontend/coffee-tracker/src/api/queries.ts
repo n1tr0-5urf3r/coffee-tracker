@@ -2,6 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
   type CreateExpenseRequest,
+  type CraftResponse,
+  type EquipRequest,
+  type LockerResponse,
+  type LootboxOpenResponse,
   type EmailPaymentReminderRequest,
   type GlobalRange,
   type MarkPaidRequest,
@@ -26,6 +30,8 @@ export const queryKeys = {
   globalBuckets: (range: GlobalRange) => ['stats', 'global-buckets', range] as const,
   globalBeverages: (range: GlobalRange) => ['stats', 'global-beverages', range] as const,
   achievements: ['achievements'] as const,
+  locker: ['locker'] as const,
+  cleaning: ['cleaning'] as const,
   stampCard: (month: string) => ['stempelkarte', month] as const,
   leaderboard: ['leaderboard'] as const,
   coffeeTwins: ['coffeeTwins'] as const,
@@ -223,6 +229,9 @@ export function useCreateExpenseMutation() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.expenses }),
         queryClient.invalidateQueries({ queryKey: queryKeys.globalStats }),
+        // Shopping trips earn a lootbox and may unlock achievements.
+        queryClient.invalidateQueries({ queryKey: queryKeys.locker }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.achievements }),
       ]),
   })
 }
@@ -269,10 +278,74 @@ export function invalidateCoffeeData(queryClient: ReturnType<typeof useQueryClie
     queryClient.invalidateQueries({ queryKey: ['stats'] }),
     queryClient.invalidateQueries({ queryKey: ['stempelkarte'] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.achievements }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.locker }),
     queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard }),
     queryClient.invalidateQueries({ queryKey: queryKeys.coffeeTwins }),
     queryClient.invalidateQueries({ queryKey: ['payments'] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.expenses }),
     queryClient.invalidateQueries({ queryKey: queryKeys.stock }),
   ])
+}
+
+export function useLocker(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.locker,
+    queryFn: api.locker,
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+/** Writes the fresh locker into the cache and refreshes what the change affects. */
+export function useLockerUpdate() {
+  const queryClient = useQueryClient()
+  return (data: { locker: LockerResponse } | LockerResponse, touchesAchievements = false) => {
+    queryClient.setQueryData(queryKeys.locker, 'locker' in data ? data.locker : data)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.leaderboard })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.coffeeTwins })
+    if (touchesAchievements) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.achievements })
+    }
+  }
+}
+
+/**
+ * Opens a lootbox. Deliberately does not touch the cache: the reel animation
+ * reveals the prize first, then the caller applies the result with
+ * `useLockerUpdate` so the collection does not spoil it.
+ */
+export function useOpenLootboxMutation() {
+  return useMutation({ mutationFn: (): Promise<LootboxOpenResponse> => api.openLootbox() })
+}
+
+export function useCraftMutation() {
+  const update = useLockerUpdate()
+  return useMutation({
+    mutationFn: (itemId: string) => api.craftCosmetic(itemId),
+    onSuccess: (data: CraftResponse) => update(data, data.unlocked_achievements.length > 0),
+  })
+}
+
+export function useEquipMutation() {
+  const update = useLockerUpdate()
+  return useMutation({
+    mutationFn: (body: EquipRequest) => api.equipCosmetic(body),
+    onSuccess: (data) => update(data),
+  })
+}
+
+export function useCleaningStatus() {
+  return useQuery({ queryKey: queryKeys.cleaning, queryFn: api.cleaningStatus })
+}
+
+export function useLogCleaningMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.logCleaning(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(queryKeys.cleaning, data.status)
+      void queryClient.invalidateQueries({ queryKey: queryKeys.locker })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.achievements })
+    },
+  })
 }

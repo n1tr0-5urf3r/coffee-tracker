@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Plus+Jakarta+Sans:wght@500;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap');
 @import 'tailwindcss';
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -11,6 +11,8 @@
 
   /* Neutral surfaces (light mode). */
   --color-surface: #f7f3ea;
+  /* Card / tile background. UI skins (cosmetics) override it. */
+  --color-card: #fffdf8;
   --color-blush: #e97991;
   --color-rose-soft: #f4d9df;
 
@@ -42,12 +44,12 @@
 
 html {
   color-scheme: light;
-  background: #f7f3ea;
+  background: var(--color-surface);
 }
 
 html.dark {
   color-scheme: dark;
-  background: #0d0f16;
+  background: var(--color-berry-950);
 }
 
 body {
@@ -56,12 +58,12 @@ body {
   margin: 0;
   font-family: var(--font-sans);
   color: #161922;
-  background: #f7f3ea;
+  background: var(--color-surface);
 }
 
 .dark body {
   color: #e9ebf1;
-  background: #0d0f16;
+  background: var(--color-berry-950);
 }
 
 button,
@@ -83,11 +85,265 @@ select:focus-visible {
   background: #c2284a;
 }
 
+/* ---------- UI skins (cosmetics; see src/lib/cosmetics.ts) ----------
+   Skins only touch surfaces, borders and fonts. The brand red never changes. */
+
+:root[data-skin='skin_oat'] {
+  --color-surface: #f1e7d3;
+  --color-card: #fbf5e9;
+  --color-berry-100: #e2d3b8;
+}
+:root.dark[data-skin='skin_oat'] {
+  --color-berry-900: #211c15;
+  --color-berry-950: #14110c;
+}
+
+:root[data-skin='skin_matcha'] {
+  --color-surface: #e9f0df;
+  --color-card: #f8fcf2;
+  --color-berry-100: #d2e0bf;
+}
+:root.dark[data-skin='skin_matcha'] {
+  --color-berry-900: #16211a;
+  --color-berry-950: #0b120d;
+}
+
+:root[data-skin='skin_kraft'] {
+  --color-surface: #e3cfab;
+  --color-card: #f3e6cd;
+  --color-berry-100: #cbb084;
+}
+:root.dark[data-skin='skin_kraft'] {
+  --color-berry-900: #261d12;
+  --color-berry-950: #17120b;
+}
+/* Ruled lines like the old paper tally sheet. */
+:root[data-skin='skin_kraft'] {
+  --skin-pattern: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 31px,
+    rgb(120 85 40 / 14%) 31px,
+    rgb(120 85 40 / 14%) 32px
+  );
+}
+
+:root[data-skin='skin_mocha'] {
+  --color-surface: #e6d6ca;
+  --color-card: #f6ede6;
+  --color-berry-100: #d4bcaa;
+}
+:root.dark[data-skin='skin_mocha'] {
+  --color-berry-900: #201511;
+  --color-berry-950: #120b08;
+}
+
+:root[data-skin='skin_terminal'] {
+  --color-surface: #e8eee9;
+  --color-card: #f7faf7;
+  --color-berry-100: #c9d6cc;
+  --font-sans: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+}
+:root[data-skin='skin_noc'] {
+  --color-surface: #e3e9f3;
+  --color-card: #f4f7fc;
+  --color-berry-100: #c5d1e4;
+}
+:root.dark[data-skin='skin_noc'] {
+  --color-berry-900: #0f1a2e;
+  --color-berry-950: #070d1a;
+}
+
+:root.dark[data-skin='skin_terminal'] {
+  --color-berry-900: #0d1510;
+  --color-berry-950: #050906;
+}
+/* Square grid like lab notebook paper. */
+:root[data-skin='skin_terminal'] {
+  --skin-pattern:
+    repeating-linear-gradient(to bottom, rgb(60 120 80 / 9%) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(to right, rgb(60 120 80 / 9%) 0 1px, transparent 1px 24px);
+}
+
+/* Skin patterns sit underneath the seasonal tint (see html[data-season] body). */
+html[data-skin] body {
+  background-image: var(--skin-pattern, none);
+}
+
+/* ---------- Avatar frames ---------- */
+
+.cosmetic-frame {
+  border-radius: 9999px;
+  padding: 3px;
+  background: transparent;
+}
+.cosmetic-frame[data-frame='frame_crema'] {
+  background: linear-gradient(135deg, #f3e2c3, #d9b98a);
+}
+.cosmetic-frame[data-frame='frame_bean'] {
+  background: repeating-conic-gradient(#5b3a22 0deg 12deg, #b07a43 12deg 24deg);
+}
+.cosmetic-frame[data-frame='frame_steam'] {
+  background: linear-gradient(180deg, #ffffff, #c8d4e2);
+  box-shadow: 0 0 14px 2px rgb(190 210 230 / 85%);
+  animation: frame-steam 3.2s ease-in-out infinite;
+}
+.cosmetic-frame[data-frame='frame_neon'] {
+  background: #ff2d75;
+  box-shadow: 0 0 8px #ff2d75, 0 0 20px rgb(255 45 117 / 55%);
+  animation: frame-neon 2.4s steps(1) infinite;
+}
+.cosmetic-frame[data-frame='frame_gold'] {
+  background: linear-gradient(135deg, #fbe7a5, #c9962c 35%, #f7d774 60%, #a6761d);
+  box-shadow: 0 2px 10px rgb(201 150 44 / 45%);
+}
+@property --holo-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.cosmetic-frame[data-frame='frame_holo'] {
+  background: conic-gradient(
+    from var(--holo-angle),
+    #ff6ec7,
+    #7afcff,
+    #feff9c,
+    #b28dff,
+    #ff6ec7
+  );
+  box-shadow: 0 0 16px rgb(178 141 255 / 55%);
+  animation: frame-holo 4s linear infinite;
+}
+
+/* Communication Networks lab frames. */
+.cosmetic-frame[data-frame='frame_ethernet'] {
+  /* T568B: white-orange, orange, white-green, blue, white-blue, green, white-brown, brown */
+  background: repeating-conic-gradient(
+    #f4a259 0deg 11.25deg, #e8590c 11.25deg 22.5deg, #b7e4c7 22.5deg 33.75deg, #1c7ed6 33.75deg 45deg,
+    #a5d8ff 45deg 56.25deg, #2f9e44 56.25deg 67.5deg, #d8c3a5 67.5deg 78.75deg, #7f4f24 78.75deg 90deg
+  );
+}
+.cosmetic-frame[data-frame='frame_wifi'] {
+  padding: 4px;
+  background: repeating-radial-gradient(circle, #4dabf7 0 2px, #ffffff 2px 4px);
+  box-shadow: 0 0 0 2px #4dabf7, 0 0 14px rgb(77 171 247 / 55%);
+}
+.cosmetic-frame[data-frame='frame_fiber'] {
+  /* A bright pulse of light travelling around a dark fiber. */
+  background: conic-gradient(
+    from var(--holo-angle),
+    #0b1d2a 0deg 300deg,
+    #7afcff 330deg,
+    #ffffff 345deg,
+    #c2284a 360deg
+  );
+  box-shadow: 0 0 14px rgb(122 252 255 / 45%);
+  animation: frame-holo 1.6s linear infinite;
+}
+
+@keyframes frame-steam {
+  0%,
+  100% {
+    box-shadow: 0 0 10px 1px rgb(190 210 230 / 70%);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgb(190 210 230 / 95%);
+  }
+}
+@keyframes frame-neon {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 0.55;
+  }
+  94% {
+    opacity: 1;
+  }
+}
+@keyframes frame-holo {
+  to {
+    --holo-angle: 360deg;
+  }
+}
+
+/* ---------- Stamp inks ---------- */
+
+.stamp-rainbow {
+  animation: stamp-rainbow 6s linear infinite;
+}
+@keyframes stamp-rainbow {
+  to {
+    filter: hue-rotate(360deg);
+  }
+}
+
+/* ---------- Lootbox opening (see components/LootboxReel.tsx) ---------- */
+
+/* Closed crate rattling while the prize is rolled. */
+.loot-charge {
+  animation: loot-charge 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes loot-charge {
+  0% { transform: translate(0, 0) rotate(0); }
+  15% { transform: translate(-1px, 0) rotate(-0.3deg); }
+  30% { transform: translate(2px, -1px) rotate(0.4deg); }
+  45% { transform: translate(-3px, 1px) rotate(-0.6deg); }
+  60% { transform: translate(4px, -1px) rotate(0.8deg) scale(1.01); }
+  75% { transform: translate(-5px, 1px) rotate(-1deg) scale(1.015); }
+  90% { transform: translate(5px, 0) rotate(1deg) scale(1.02); }
+  100% { transform: translate(0, 0) rotate(0) scale(1); }
+}
+
+/* Screen shake when an epic or legendary lands. */
+.loot-impact {
+  animation: loot-impact 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes loot-impact {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-6px); }
+  40%, 60% { transform: translateX(6px); }
+}
+
+/* Light sweep across the winning tile. */
+.loot-shine {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 55%) 50%, transparent 70%);
+  transform: translateX(-120%);
+  animation: loot-shine 1.6s ease-in-out 0.15s infinite;
+}
+@keyframes loot-shine {
+  60%, 100% { transform: translateX(120%); }
+}
+
+/* God rays behind the revealed prize. */
+.loot-rays {
+  animation: loot-rays 10s linear infinite;
+}
+@keyframes loot-rays {
+  to { transform: rotate(360deg); }
+}
+
+/* "Open me" pulse on the button while crates are waiting. */
+.loot-pulse {
+  animation: loot-pulse 1.8s ease-in-out infinite;
+}
+@keyframes loot-pulse {
+  0%, 100% { box-shadow: 0 5px 0 rgb(111 20 48 / 16%), 0 0 0 0 rgb(255 209 102 / 0%); }
+  50% { box-shadow: 0 5px 0 rgb(111 20 48 / 16%), 0 0 0 8px rgb(255 209 102 / 45%); }
+}
+
 /* ---------- Seasonal themes (see src/lib/seasons.ts) ---------- */
 
 :root[data-season='newyear'] { --color-season: #f5b700; }
 :root[data-season='christmas'] { --color-season: #2f8f5b; }
 :root[data-season='easter'] { --color-season: #b79cf2; }
+:root[data-season='internetday'] { --color-season: #1c7ed6; }
 :root[data-season='halloween'] { --color-season: #f97316; }
 :root[data-season='coffeeday'] { --color-season: #8b5a2b; }
 :root[data-season='winter'] { --color-season: #7cc4e8; }
@@ -106,7 +362,8 @@ select:focus-visible {
 html[data-season] body {
   background-image:
     radial-gradient(circle at 100% 0%, var(--season-tint), transparent 34rem),
-    radial-gradient(circle at 0% 100%, var(--season-tint), transparent 30rem);
+    radial-gradient(circle at 0% 100%, var(--season-tint), transparent 30rem),
+    var(--skin-pattern, linear-gradient(transparent, transparent));
   background-attachment: fixed;
 }
 

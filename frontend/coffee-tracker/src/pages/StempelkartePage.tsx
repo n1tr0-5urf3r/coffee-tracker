@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import confetti from 'canvas-confetti'
 import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react'
-import { useStampCard } from '../api/queries'
+import { useLocker, useStampCard } from '../api/queries'
 import { Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { StampCard } from '../components/StampCard'
@@ -14,6 +14,8 @@ export function StempelkartePage() {
   const thisMonth = currentMonthKey()
   const [month, setMonth] = useState(thisMonth)
   const { data, isLoading } = useStampCard(month)
+  const { data: locker } = useLocker()
+  const stampStyleId = locker?.equipped.stamp ?? null
   const reducedMotion = useMemo(
     () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     [],
@@ -47,7 +49,7 @@ export function StempelkartePage() {
         </div>
       </PageHeader>
 
-      <div className="mb-5 flex items-center justify-between gap-3 rounded-4xl border-2 border-berry-100 bg-[#fffdf8] px-3 py-2 shadow-soft dark:border-white/10 dark:bg-berry-900">
+      <div className="mb-5 flex items-center justify-between gap-3 rounded-4xl border-2 border-berry-100 bg-card px-3 py-2 shadow-soft dark:border-white/10 dark:bg-berry-900">
         <Button
           variant="ghost"
           onClick={() => setMonth((value) => shiftMonth(value, -1))}
@@ -78,10 +80,11 @@ export function StempelkartePage() {
               stampsPerCard={data.stamps_per_card}
               monthLabel={monthLabel}
               reducedMotion={reducedMotion}
+              stampStyleId={stampStyleId}
             />
           ) : null}
 
-          <div className="flex flex-wrap items-center gap-3 rounded-4xl border-2 border-berry-100 bg-[#fffdf8] px-5 py-4 text-sm font-bold text-berry-700 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-rose-100">
+          <div className="flex flex-wrap items-center gap-3 rounded-4xl border-2 border-berry-100 bg-card px-5 py-4 text-sm font-bold text-berry-700 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-rose-100">
             <Sparkles className="size-5 text-primary dark:text-blush" aria-hidden="true" />
             <span>
               {data.paid_drink_count} paid drinks in {monthLabel} · {freeDrinks} free
@@ -102,6 +105,7 @@ export function StempelkartePage() {
                   monthLabel={monthLabel}
                   reducedMotion
                   muted
+                  stampStyleId={stampStyleId}
                 />
               ))}
             </div>

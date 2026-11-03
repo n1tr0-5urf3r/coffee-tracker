@@ -2,6 +2,7 @@ export type SeasonId =
   | 'newyear'
   | 'christmas'
   | 'easter'
+  | 'internetday'
   | 'halloween'
   | 'coffeeday'
   | 'winter'
@@ -25,6 +26,7 @@ export const SEASONS: Record<SeasonId, SeasonDefinition> = {
   newyear: { label: 'Happy New Year', emoji: '🥂', particles: ['✨', '🎆', '✨', '🎇'], motion: 'twinkle' },
   christmas: { label: 'Advent', emoji: '🎄', particles: ['❄️', '⭐', '❄️', '🎄'], motion: 'fall' },
   easter: { label: 'Easter', emoji: '🐣', particles: ['🥚', '🐣', '🌷', '🥚'], motion: 'fall' },
+  internetday: { label: 'Internet Day', emoji: '🌐', particles: ['📡', '🛰️', '📶', '💾'], motion: 'twinkle' },
   halloween: { label: 'Halloween', emoji: '🎃', particles: ['🦇', '🎃', '👻', '🦇'], motion: 'drift' },
   coffeeday: { label: 'Coffee Day', emoji: '☕', particles: ['☕', '🫘', '🫘', '☕'], motion: 'fall' },
   winter: { label: 'Winter', emoji: '⛄', particles: ['❄️', '❄️', '❄️', '⛄'], motion: 'fall' },
@@ -73,6 +75,8 @@ export function resolveSeason(date: Date): SeasonId {
   const easterOffset = daysFromEaster(date)
   if (easterOffset >= -7 && easterOffset <= 1) return 'easter'
 
+  // First ARPANET message, 29 Oct 1969. Beats Halloween for the day.
+  if (month === 10 && day === 29) return 'internetday'
   if ((month === 10 && day >= 24) || (month === 11 && day === 1)) return 'halloween'
   if (month === 10 && day === 1) return 'coffeeday'
 

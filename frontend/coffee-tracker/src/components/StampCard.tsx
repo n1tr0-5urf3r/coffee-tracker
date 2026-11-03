@@ -12,12 +12,15 @@ export function StampCard({
   monthLabel,
   reducedMotion = false,
   muted = false,
+  stampStyleId = null,
 }: {
   card: StampCardData
   stampsPerCard: number
   monthLabel: string
   reducedMotion?: boolean
   muted?: boolean
+  /** Equipped stamp cosmetic. */
+  stampStyleId?: string | null
 }) {
   const slots = Array.from({ length: stampsPerCard }, (_, index) => card.stamps[index] ?? null)
   const filled = card.stamps.length
@@ -26,7 +29,7 @@ export function StampCard({
   return (
     <div
       className={cn(
-        'relative mx-auto w-full max-w-3xl overflow-hidden rounded-4xl border-2 border-berry-100 bg-[#fffdf8] p-4 text-berry-950 shadow-soft sm:p-6 dark:border-white/10 dark:bg-berry-900 dark:text-berry-50',
+        'relative mx-auto w-full max-w-3xl overflow-hidden rounded-4xl border-2 border-berry-100 bg-card p-4 text-berry-950 shadow-soft sm:p-6 dark:border-white/10 dark:bg-berry-900 dark:text-berry-50',
         muted && 'opacity-75',
       )}
     >
@@ -60,7 +63,7 @@ export function StampCard({
           {slots.map((stamp, index) => (
             <div key={stamp?.consumed_at ?? `empty-${index}`} className="relative aspect-square">
               {stamp ? (
-                <StampImprint stamp={stamp} reducedMotion={reducedMotion} />
+                <StampImprint stamp={stamp} reducedMotion={reducedMotion} styleId={stampStyleId} />
               ) : (
                 <EmptySlot />
               )}

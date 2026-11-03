@@ -132,6 +132,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cleanings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["log_cleaning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cleanings/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["cleaning_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/coffee-twins": {
         parameters: {
             query?: never;
@@ -180,6 +212,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cosmetics/artwork/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Private avatar artwork (team photos, third-party stickers), members only. */
+        get: operations["private_artwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cosmetics/craft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["craft_cosmetic"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cosmetics/equipped": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["equip_cosmetic"];
+        trace?: never;
+    };
+    "/api/v1/cosmetics/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["my_locker"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/expenses": {
         parameters: {
             query?: never;
@@ -206,6 +303,22 @@ export interface paths {
         get: operations["leaderboard"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lootboxes/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["open_lootbox"];
         delete?: never;
         options?: never;
         head?: never;
@@ -616,6 +729,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AchievementEvent: {
+            description: string;
+            id: string;
+            name: string;
+        };
         AchievementItem: {
             description?: string | null;
             hint?: string | null;
@@ -626,6 +744,7 @@ export interface components {
             unlocked_at?: number | null;
         };
         AchievementLeaderboardEntry: {
+            cosmetics: components["schemas"]["PublicCosmetics"];
             display_name: string;
             /** Format: int64 */
             latest_unlocked_at?: number | null;
@@ -687,7 +806,35 @@ export interface components {
             /** Format: double */
             half_life_hours: number;
         };
+        CleaningEntry: {
+            /** Format: int64 */
+            cleaned_at: number;
+            display_name: string;
+            rewarded: boolean;
+        };
+        CleaningResponse: {
+            /** @description Whether this cleaning earned the weekly lootbox. */
+            rewarded: boolean;
+            status: components["schemas"]["CleaningStatus"];
+            unlocked_achievements: components["schemas"]["AchievementEvent"][];
+        };
+        CleaningStatus: {
+            /**
+             * Format: int64
+             * @description Earliest time the current user may log another cleaning.
+             */
+            next_allowed_at?: number | null;
+            recent: components["schemas"]["CleaningEntry"][];
+            /** @description True while nobody has claimed this week's cleaning lootbox. */
+            reward_available: boolean;
+            /** Format: int64 */
+            reward_claimed_at?: number | null;
+            reward_claimed_by?: string | null;
+            /** @description Current local ISO week, e.g. `2026-W45`. */
+            week: string;
+        };
         CoffeeTwin: {
+            cosmetics: components["schemas"]["PublicCosmetics"];
             display_name: string;
             /** Format: double */
             similarity: number;
@@ -703,6 +850,35 @@ export interface components {
             id: string;
             machine_id: string;
             user_id: string;
+        };
+        CosmeticItem: {
+            /** Format: int64 */
+            acquired_at?: number | null;
+            /** @description Image path relative to the frontend base URL (avatars only). */
+            artwork_path?: string | null;
+            /**
+             * Format: int64
+             * @description Beans needed to craft the item; `None` when it can only drop from a box.
+             */
+            craft_cost?: number | null;
+            craftable: boolean;
+            description: string;
+            equipped: boolean;
+            /** @description Emoji fallback for items without dedicated artwork. */
+            glyph?: string | null;
+            id: string;
+            name: string;
+            owned: boolean;
+            rarity: components["schemas"]["Rarity"];
+            slot: components["schemas"]["Slot"];
+        };
+        CraftRequest: {
+            item_id: string;
+        };
+        CraftResponse: {
+            item: components["schemas"]["CosmeticItem"];
+            locker: components["schemas"]["LockerResponse"];
+            unlocked_achievements: components["schemas"]["AchievementEvent"][];
         };
         CreateConsumptionRequest: {
             beverage_id: string;
@@ -733,6 +909,19 @@ export interface components {
             failed_user_ids: string[];
             sent_count: number;
             skipped_no_email_count: number;
+        };
+        EquipRequest: {
+            /** @description Item to equip in `slot`; `null` resets the slot to the default look. */
+            item_id?: string | null;
+            slot: components["schemas"]["Slot"];
+        };
+        EquippedCosmetics: {
+            avatar?: string | null;
+            cup?: string | null;
+            frame?: string | null;
+            skin?: string | null;
+            stamp?: string | null;
+            title?: string | null;
         };
         ExpenseEntry: {
             /** Format: int64 */
@@ -831,6 +1020,7 @@ export interface components {
         LeaderboardEntry: {
             /** Format: int64 */
             coffee_count: number;
+            cosmetics: components["schemas"]["PublicCosmetics"];
             display_name: string;
             /** Format: int64 */
             rank: number;
@@ -853,6 +1043,38 @@ export interface components {
             total_public_unlocks: number;
             /** Format: int64 */
             visible_participants: number;
+        };
+        LockerResponse: {
+            /** Format: int64 */
+            beans: number;
+            /** Format: int64 */
+            boxes_available: number;
+            /** Format: int64 */
+            boxes_earned: number;
+            /** Format: int64 */
+            boxes_opened: number;
+            equipped: components["schemas"]["EquippedCosmetics"];
+            items: components["schemas"]["CosmeticItem"][];
+            rarities: components["schemas"]["RarityInfo"][];
+            sources: components["schemas"]["LootboxSources"];
+        };
+        LootboxOpenResponse: {
+            /** Format: int64 */
+            beans_awarded: number;
+            duplicate: boolean;
+            item: components["schemas"]["CosmeticItem"];
+            locker: components["schemas"]["LockerResponse"];
+            unlocked_achievements: components["schemas"]["AchievementEvent"][];
+        };
+        LootboxSources: {
+            /** Format: int64 */
+            achievement: number;
+            /** Format: int64 */
+            cleaning: number;
+            /** Format: int64 */
+            shopping: number;
+            /** Format: int64 */
+            stamp_card: number;
         };
         Machine: {
             id: string;
@@ -960,11 +1182,32 @@ export interface components {
         PaypalLinksResponse: {
             entries: components["schemas"]["PaypalLinkEntry"][];
         };
+        /** @description Cosmetics other people can see (leaderboard, coffee twins). */
+        PublicCosmetics: {
+            avatar?: string | null;
+            /** @description Image path of the equipped avatar, relative to the frontend base URL. */
+            avatar_artwork?: string | null;
+            frame?: string | null;
+            /** @description Display text of the equipped title. */
+            title?: string | null;
+        };
         RareAchievement: {
             achievement_id: string;
             name: string;
             /** Format: int64 */
             unlock_count: number;
+        };
+        /** @enum {string} */
+        Rarity: "common" | "rare" | "epic" | "legendary";
+        RarityInfo: {
+            /** Format: int64 */
+            craft_cost: number;
+            /** Format: double */
+            drop_chance_percent: number;
+            /** Format: int64 */
+            duplicate_beans: number;
+            label: string;
+            rarity: components["schemas"]["Rarity"];
         };
         ReceivedPaymentEntry: {
             /** Format: int64 */
@@ -993,6 +1236,8 @@ export interface components {
             /** Format: int64 */
             consumed_at: number;
         };
+        /** @enum {string} */
+        Slot: "frame" | "avatar" | "cup" | "stamp" | "title" | "skin" | "collectible";
         Stamp: {
             beverage_id: string;
             beverage_name: string;
@@ -1051,6 +1296,7 @@ export interface components {
             items: components["schemas"]["StockItem"][];
         };
         StreakLeaderboardEntry: {
+            cosmetics: components["schemas"]["PublicCosmetics"];
             /** Format: int64 */
             current_streak_days: number;
             display_name: string;
@@ -1271,6 +1517,51 @@ export interface operations {
             };
         };
     };
+    log_cleaning: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleaningResponse"];
+                };
+            };
+            /** @description Cleaned too recently */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    cleaning_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CleaningStatus"];
+                };
+            };
+        };
+    };
     coffee_twins: {
         parameters: {
             query?: never;
@@ -1333,6 +1624,114 @@ export interface operations {
             };
         };
     };
+    private_artwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebP image */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/webp": unknown;
+                };
+            };
+            /** @description Guests may not see private artwork */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown item or missing file */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    craft_cosmetic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CraftRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CraftResponse"];
+                };
+            };
+            /** @description Already owned or not enough beans */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    equip_cosmetic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EquipRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockerResponse"];
+                };
+            };
+        };
+    };
+    my_locker: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LockerResponse"];
+                };
+            };
+        };
+    };
     list_expenses: {
         parameters: {
             query?: never;
@@ -1391,6 +1790,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LeaderboardResponse"];
                 };
+            };
+        };
+    };
+    open_lootbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LootboxOpenResponse"];
+                };
+            };
+            /** @description No unopened lootboxes left */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

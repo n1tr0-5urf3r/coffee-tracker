@@ -569,7 +569,7 @@ function PaymentLinkGenerator({
             Pay to
           </label>
           <select
-            className="min-h-12 w-full rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
+            className="min-h-12 w-full rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
             disabled={linksLoading || !links.length}
             value={selectedLink?.user_id ?? ''}
             onChange={(event) => setSelectedUserId(event.target.value)}
@@ -800,7 +800,7 @@ export function EmailReminderDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="email-reminder-title"
-        className="max-h-full w-full max-w-lg overflow-y-auto rounded-4xl border-2 border-white/80 bg-[#fffdf8] p-5 text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-berry-50"
+        className="max-h-full w-full max-w-lg overflow-y-auto rounded-4xl border-2 border-white/80 bg-card p-5 text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-berry-50"
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -957,7 +957,7 @@ function MarkPaidDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="mark-paid-title"
-        className="w-full max-w-md rounded-4xl border-2 border-white/80 bg-[#fffdf8] p-5 text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-berry-50"
+        className="w-full max-w-md rounded-4xl border-2 border-white/80 bg-card p-5 text-berry-950 shadow-soft dark:border-white/10 dark:bg-berry-900 dark:text-berry-50"
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -1015,7 +1015,7 @@ function RecipientSelect({
 }) {
   return (
     <select
-      className="min-h-12 w-full rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
+      className="min-h-12 w-full rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
       disabled={disabled || !recipients.length}
       value={selectedRecipientId}
       onChange={(event) => onRecipientChange(event.target.value)}
@@ -1194,14 +1194,14 @@ function ExpensesTracker({
 
         <form className="grid gap-2 sm:grid-cols-[1fr_8rem_9rem_auto] lg:w-[48rem]" onSubmit={submitExpense}>
           <input
-            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition placeholder:text-berry-700/70 focus:border-primary dark:bg-berry-950 dark:text-rose-50 dark:placeholder:text-rose-100/60"
+            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition placeholder:text-berry-700/70 focus:border-primary dark:bg-berry-950 dark:text-rose-50 dark:placeholder:text-rose-100/60"
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Description"
             maxLength={180}
           />
           <select
-            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
+            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition focus:border-primary dark:bg-berry-950 dark:text-rose-50"
             value={expenseKind}
             onChange={(event) => setExpenseKind(event.target.value as 'expense' | 'credit')}
           >
@@ -1209,7 +1209,7 @@ function ExpensesTracker({
             <option value="credit">Refund / Pfand -</option>
           </select>
           <input
-            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-[#fffdf8] px-3 font-bold text-berry-950 outline-none transition placeholder:text-berry-700/70 focus:border-primary dark:bg-berry-950 dark:text-rose-50 dark:placeholder:text-rose-100/60"
+            className="min-h-12 rounded-2xl border-2 border-primary/10 bg-card px-3 font-bold text-berry-950 outline-none transition placeholder:text-berry-700/70 focus:border-primary dark:bg-berry-950 dark:text-rose-50 dark:placeholder:text-rose-100/60"
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             placeholder="12,50"

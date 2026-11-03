@@ -4,6 +4,7 @@ import type { Stamp } from '../api/client'
 import { BeverageIcon, stampLabel } from '../lib/beverageIcons'
 import { stampJitter } from '../lib/stampJitter'
 import { cn } from '../lib/cn'
+import { stampStyle } from '../lib/cosmetics'
 
 /**
  * Rough-edged ink filter shared by every imprint on the page. Rendered once,
@@ -31,10 +32,13 @@ export function StampImprint({
   stamp,
   tone = 'ink',
   reducedMotion = false,
+  styleId = null,
 }: {
   stamp: Stamp
   tone?: 'ink' | 'reward'
   reducedMotion?: boolean
+  /** Equipped stamp cosmetic; reward stamps always stay mint. */
+  styleId?: string | null
 }) {
   const label = tone === 'reward' ? 'Free' : stampLabel(stamp.beverage_id, stamp.beverage_name)
   const jitter = stampJitter(stamp.consumed_at + stamp.position)
@@ -50,9 +54,7 @@ export function StampImprint({
       title={`${stamp.beverage_name} · ${new Date(stamp.consumed_at * 1000).toLocaleString('en-GB')}`}
       className={cn(
         'absolute inset-0 flex flex-col items-center justify-center rounded-full border-[3px] mix-blend-multiply dark:mix-blend-screen',
-        tone === 'reward'
-          ? 'border-mint text-mint'
-          : 'border-primary text-primary dark:border-blush dark:text-blush',
+        tone === 'reward' ? 'border-mint text-mint' : stampStyle(styleId),
       )}
     >
       <span

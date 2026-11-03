@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import confetti from 'canvas-confetti'
-import { Lock, Medal, Sparkles } from 'lucide-react'
+import { Gift, Lock, Medal, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { useAchievements } from '../api/queries'
+import { useAchievements, useLocker } from '../api/queries'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { formatUnixDate } from '../lib/date'
@@ -10,6 +11,8 @@ import { BrandWatermark } from '../components/BrandWatermark'
 
 export function AchievementsPage() {
   const { data, isLoading } = useAchievements()
+  const { data: locker } = useLocker()
+  const boxes = locker?.boxes_available ?? 0
   const unlockedCount = data?.achievements.filter((item) => item.unlocked).length ?? 0
   const previousUnlocked = useRef(unlockedCount)
 
@@ -27,8 +30,17 @@ export function AchievementsPage() {
   return (
     <div>
       <PageHeader eyebrow="Sticker book" title="Achievements">
-        <div className="rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
-          {unlockedCount} unlocked
+        <div className="flex flex-wrap gap-2">
+          <div className="rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
+            {unlockedCount} unlocked
+          </div>
+          <Link
+            to="/locker"
+            className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-black text-white shadow-button transition hover:bg-secondary dark:bg-blush dark:text-berry-950"
+          >
+            <Gift className="size-4" aria-hidden="true" />
+            {boxes > 0 ? `${boxes} crate${boxes === 1 ? '' : 's'} to open` : 'Locker'}
+          </Link>
         </div>
       </PageHeader>
 
@@ -96,6 +108,9 @@ function AchievementSection({
                 <p className="font-display text-2xl font-black">{achievement.name}</p>
                 <p className="mt-2 text-sm font-bold text-berry-700 dark:text-rose-100">
                   {achievement.description ?? achievement.hint}
+                </p>
+                <p className="mt-3 inline-flex items-center gap-1 text-xs font-black text-primary dark:text-blush">
+                  <Gift className="size-3" aria-hidden="true" /> Reward: 1 lootbox
                 </p>
                 {achievement.unlocked_at ? (
                   <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-sun/45 px-3 py-1 text-xs font-black">

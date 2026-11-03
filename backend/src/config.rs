@@ -47,6 +47,9 @@ pub struct Config {
     pub auto_payment_reminder: Option<AutoPaymentReminderConfig>,
     pub timezone: String,
     pub session_ttl: Duration,
+    /// Folder with private avatar artwork (team photos, stickers), served only
+    /// to members through `/api/v1/cosmetics/artwork/{id}`. Never published.
+    pub cosmetics_private_dir: String,
 }
 
 impl Config {
@@ -114,6 +117,8 @@ impl Config {
             auto_payment_reminder,
             timezone,
             session_ttl: Duration::from_secs(60 * 60 * 24 * 180),
+            cosmetics_private_dir: env::var("COSMETICS_PRIVATE_DIR")
+                .unwrap_or_else(|_| "../cosmetics_private".into()),
         })
     }
 }

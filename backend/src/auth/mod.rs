@@ -1908,6 +1908,7 @@ mod tests {
                 auto_payment_reminder: None,
                 timezone: "UTC".into(),
                 session_ttl: std::time::Duration::from_secs(60),
+                cosmetics_private_dir: "../cosmetics_private".into(),
             },
             db,
             http: reqwest::Client::new(),

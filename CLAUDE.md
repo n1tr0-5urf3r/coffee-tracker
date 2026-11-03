@@ -4,7 +4,7 @@ Guidance for working in this repository.
 
 ## What this is
 
-**Coffee Tracker** is a web app that replaces a team's paper coffee tally. Users log coffee/tea consumption and get a personal dashboard (caffeine curve, streaks, daily totals), an opt-in leaderboard with "coffee-twin" matching, achievements, a monthly "Stempelkarte" loyalty card (12 stamps, 13th drink free), stock tracking, and a staff-only Payments/Expenses page (shared tabs, PayPal links). Auth is OAuth (GitLab + Authentik/OIDC) gated by configurable groups, plus a guest login. Current version **1.5.0** (kept in sync between `backend/Cargo.toml` and `frontend/coffee-tracker/package.json`).
+**Coffee Tracker** is a web app that replaces a team's paper coffee tally. Users log coffee/tea consumption and get a personal dashboard (caffeine curve, streaks, daily totals), an opt-in leaderboard with "coffee-twin" matching, achievements, a monthly "Stempelkarte" loyalty card (12 stamps, 13th drink free), earned lootboxes with unlockable cosmetics, automatic seasonal themes, a weekly machine-cleaning reward, stock tracking, and a staff-only Payments/Expenses page (shared tabs, PayPal links). Auth is OAuth (GitLab + Authentik/OIDC) gated by configurable groups, plus a guest login. Current version **1.6.0** (kept in sync between `backend/Cargo.toml` and `frontend/coffee-tracker/package.json`).
 
 Default git branch is `master`. Commits follow Conventional Commits; `chore: bump version` marks releases.
 
@@ -57,6 +57,7 @@ npm run dev
   - `auth/mod.rs` — OAuth (GitLab + Authentik/OIDC), guest login, sessions, `CurrentUser` extractor (largest file).
   - `catalog/` — machines & beverages. `consumptions/` — log/delete drinks (triggers stock decrement, achievements, notifications).
   - `stats/` — per-user & global stats (`caffeine_decay`, `resolve_tz`). `loyalty.rs` — monthly stamp cards (`STAMPS_PER_CARD`, `month_bounds`, `discounted_amount_cents`; the free-drink discount is applied inside `payments::user_totals`). `achievements/` — evaluation engine. `social/` — leaderboard, coffee-twins (cosine similarity), streaks.
+  - `cosmetics/` — lootboxes and cosmetics (`catalog.rs`: static item list, rarities, rolls). Crates are a `lootbox_grants` ledger synced lazily per user: one per unlocked achievement (including ones from before the feature), and one per shopping day (purchases ≥ 1 €) / full card / weekly cleaning (members only) after the user's first sync (`ensure_onboarded`, which also catches up on achievements earned from history). `cleaning.rs` — trust-based machine cleaning; the first one per ISO week earns a crate (unique index).
   - `payments/` + `expenses.rs` — debt/payment/expense tracking. `stock.rs` — stock items + auto-decrement + low-stock alerts. `notifications/` — Mattermost/Matrix webhooks. `version.rs`, `openapi/`.
 - **API:** everything under `/api/v1`. Key groups: `auth/*`, `me`, `machines`, `beverages`, `consumptions`, `stats/me/*`, `stats/global/*`, `achievements/me`, `stempelkarte/me`, `leaderboard`, `coffee-twins`, `payments/*`, `expenses`, `stock`, `version`. (Full list in Swagger UI.)
 - **Auth model:** session cookies, not JWT. Cookie `coffee_session` = random token; DB stores only `SHA256(session_secret : token)`. TTL 180 days, `HttpOnly`/`SameSite=Lax`/`Secure` on https. `CurrentUser` (axum `FromRequestParts`) = authenticated-only. Login is gated by `AUTH_ALLOWED_GROUPS`; membership in `AUTH_STAFF_GROUPS` grants the elevated `stock_manager` role. Guests use `coffee_guest` cookie + a 12-char recovery code (hashed).
@@ -77,7 +78,9 @@ npm run dev
 - **PWA-ish:** service worker `public/sw.js`; offline consumptions queued in IndexedDB (`lib/offlineQueue.ts`) and replayed via `hooks/useOfflineQueue.ts`.
 - **Scripts:** `npm run dev`, `npm run build` (`tsc -b && vite build`), `npm run preview`, `npm run lint` (eslint), `npm run test` (Vitest + jsdom), `npm run generate:api`.
 - **Tests:** Vitest, mostly unit tests of pure helpers (`src/lib/*.test.ts`, `src/api/client.test.ts`, `src/pages/*.test.ts`, `AppFooter.test.tsx`).
-- Note: `dist/` is a committed prior build (generated output, not source).
+- `dist/` is build output and gitignored.
+- **Seasonal themes:** `lib/seasons.ts` (date → season, Easter calc) + `lib/seasonalTheme.tsx` (per-browser on/off in localStorage, `data-season` on `<html>`, `?season=<id>` preview). Seasons only add an accent and decor; the brand red never changes.
+- **Cosmetics:** `/locker` page (`LockerPage`, `LootboxReel`), `lib/cosmetics.ts`. UI skins set `data-skin` on `<html>` and only override surface tokens (`--color-card`, `--color-surface`, …). Avatar images come from the API's `artwork_path`: public ones in `public/cosmetics/avatars/`, private ones (team photos, Snaggs stickers) in the gitignored root `cosmetics_private/`, served by the backend to members only (`/api/v1/cosmetics/artwork/{id}`, folder from `COSMETICS_PRIVATE_DIR`); guests never see or roll private items. Never move private artwork into `public/` — the GitHub snapshot and Docker Hub images are public.
 
 ## Config / environment
 

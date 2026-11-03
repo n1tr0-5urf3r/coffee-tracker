@@ -11,6 +11,7 @@ import { AchievementsPage } from './pages/AchievementsPage'
 import { ComponentsPage } from './pages/ComponentsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { LeaderboardPage } from './pages/LeaderboardPage'
+import { LockerPage } from './pages/LockerPage'
 import { LoginPage } from './pages/LoginPage'
 import { LogPage } from './pages/LogPage'
 import { PaymentsPage } from './pages/PaymentsPage'
@@ -46,6 +47,7 @@ const router = createBrowserRouter([
           { path: '/stempelkarte', element: <StempelkartePage /> },
           { path: '/dashboard', element: <DashboardPage /> },
           { path: '/achievements', element: <AchievementsPage /> },
+          { path: '/locker', element: <LockerPage /> },
           { path: '/leaderboard', element: <LeaderboardPage /> },
           { path: '/payments/:section?', element: <PaymentsPage /> },
           { path: '/settings', element: <SettingsPage /> },

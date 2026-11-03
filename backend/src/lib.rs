@@ -1,8 +1,10 @@
 pub mod achievements;
 pub mod auth;
 pub mod catalog;
+pub mod cleaning;
 pub mod config;
 pub mod consumptions;
+pub mod cosmetics;
 pub mod db;
 pub mod error;
 pub mod expenses;
@@ -55,6 +57,8 @@ pub async fn build_app(config: Config, db: SqlitePool) -> anyhow::Result<Router>
         .merge(stats::router())
         .merge(loyalty::router())
         .merge(achievements::router())
+        .merge(cosmetics::router())
+        .merge(cleaning::router())
         .merge(social::router())
         .merge(payments::router())
         .merge(expenses::router())

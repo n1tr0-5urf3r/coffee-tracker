@@ -5,9 +5,11 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
+    achievements::evaluate_global,
     auth::CurrentUser,
     db::now_ts,
     error::{ApiError, ApiResult},
+    notifications::notify_unlocks,
 };
 
 pub fn router() -> Router<AppState> {
@@ -89,6 +91,12 @@ pub(crate) async fn create_expense(
     .bind(now)
     .execute(&state.db)
     .await?;
+
+    // Shopping trips earn a lootbox (synced lazily) and count towards achievements.
+    if input.amount_cents > 0 {
+        let unlocks = evaluate_global(&state, &user.id, now).await?;
+        notify_unlocks(&state, &user, &unlocks).await;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -333,6 +341,7 @@ mod tests {
                 auto_payment_reminder: None,
                 timezone: "UTC".into(),
                 session_ttl: std::time::Duration::from_secs(60),
+                cosmetics_private_dir: "../cosmetics_private".into(),
             },
             db,
             http: reqwest::Client::new(),

@@ -207,6 +207,67 @@ pub fn discounted_amount_cents(drinks: &[PaidDrink], cutoff: i64, tz: &Tz) -> i6
     total
 }
 
+/// Stamp card progress for one calendar month.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MonthCardProgress {
+    /// `YYYY-MM` in the configured timezone.
+    pub month: String,
+    /// Paid drinks in that month, free drinks included (they occupy a position).
+    pub paid_drinks: i64,
+    /// When each full card got its last stamp, in card order.
+    pub card_completed_at: Vec<i64>,
+}
+
+impl MonthCardProgress {
+    /// Cards with all `STAMPS_PER_CARD` stamps; card `k` fills at position `13(k-1)+12`.
+    pub fn completed_cards(&self) -> i64 {
+        (self.paid_drinks + 1) / CYCLE
+    }
+
+    /// Free drinks actually consumed (every `CYCLE`-th position).
+    pub fn free_drinks(&self) -> i64 {
+        self.paid_drinks / CYCLE
+    }
+}
+
+/// Lifetime stamp card progress of a user, one entry per month with paid drinks.
+pub async fn card_progress_by_month(
+    state: &AppState,
+    user_id: &str,
+) -> ApiResult<Vec<MonthCardProgress>> {
+    let tz = resolve_tz(&state.config.timezone);
+    let rows: Vec<(i64,)> = sqlx::query_as(
+        "SELECT c.consumed_at
+         FROM consumptions c
+         JOIN beverages b ON b.id = c.beverage_id
+         WHERE c.user_id = ? AND b.price_cents > 0
+         ORDER BY c.consumed_at ASC",
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut progress: Vec<MonthCardProgress> = Vec::new();
+    for (consumed_at,) in rows {
+        let (year, month) = local_month(consumed_at, &tz);
+        let key = format_month(year, month);
+        if progress.last().is_none_or(|last| last.month != key) {
+            progress.push(MonthCardProgress {
+                month: key,
+                paid_drinks: 0,
+                card_completed_at: Vec::new(),
+            });
+        }
+        let month = progress.last_mut().expect("pushed above");
+        month.paid_drinks += 1;
+        // The 12th stamp of a cycle fills the card (the 13th position is the free drink).
+        if month.paid_drinks % CYCLE == STAMPS_PER_CARD {
+            month.card_completed_at.push(consumed_at);
+        }
+    }
+    Ok(progress)
+}
+
 async fn paid_drinks_between(
     state: &AppState,
     user_id: &str,
@@ -301,6 +362,29 @@ mod tests {
             beverage_id: "coffee".into(),
             beverage_name: "Coffee".into(),
             price_cents,
+        }
+    }
+
+    #[test]
+    fn month_progress_matches_built_cards() {
+        for paid_drinks in 0..60i64 {
+            let drinks: Vec<_> = (0..paid_drinks).map(|i| drink(i, 50)).collect();
+            let cards = build_cards(&drinks);
+            let progress = MonthCardProgress {
+                month: "2026-11".into(),
+                paid_drinks,
+                card_completed_at: Vec::new(),
+            };
+            assert_eq!(
+                progress.completed_cards(),
+                cards.iter().filter(|card| card.complete).count() as i64,
+                "completed cards for {paid_drinks} drinks"
+            );
+            assert_eq!(
+                progress.free_drinks(),
+                cards.iter().filter(|card| card.reward.is_some()).count() as i64,
+                "free drinks for {paid_drinks} drinks"
+            );
         }
     }
 
