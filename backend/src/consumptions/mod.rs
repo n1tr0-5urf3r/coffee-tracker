@@ -17,6 +17,7 @@ use crate::{
     error::{ApiError, ApiResult},
     notifications::notify_unlocks,
     stock::decrement_for_beverage,
+    wheel::redeem_free_drink,
 };
 
 pub fn router() -> Router<AppState> {
@@ -41,6 +42,8 @@ pub struct ConsumptionResponse {
     /// Sources of the crates this drink just earned (e.g. `daily`, `streak`,
     /// `milestone`, `achievement`), one entry per crate.
     pub crates_earned: Vec<String>,
+    /// Whether a free drink won on the lucky wheel paid for this one.
+    pub free_drink_voucher_used: bool,
 }
 
 #[utoipa::path(
@@ -86,6 +89,8 @@ pub(crate) async fn create_consumption(
     .execute(&state.db)
     .await?;
 
+    let free_drink_voucher_used =
+        redeem_free_drink(&state, &user.id, &id, &input.beverage_id).await?;
     decrement_for_beverage(&state, &input.beverage_id).await?;
     // Activity crates first (daily, streak, Advent, milestone), so achievements
     // that count them see this drink; then the crates for new achievements.
@@ -105,6 +110,7 @@ pub(crate) async fn create_consumption(
             beverage_id: input.beverage_id,
             consumed_at: now,
             crates_earned,
+            free_drink_voucher_used,
         }),
     ))
 }

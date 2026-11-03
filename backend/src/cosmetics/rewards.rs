@@ -1,4 +1,5 @@
-//! Crates earned from drinking activity: one per active day, a bonus for
+//! Crates earned from drinking activity: one for every ACTIVE_DAY_EVERY-th
+//! day with a drink (not necessarily in a row), a bonus for
 //! every STREAK_BONUS_EVERY lab days in a row, an Advent calendar door for
 //! each active day from 1 to 24 December, and one for every
 //! MILESTONE_EVERY-th drink. Pure functions so the rules are easy to test.
@@ -8,6 +9,8 @@ use std::collections::BTreeSet;
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc, Weekday};
 use chrono_tz::Tz;
 
+/// An active-day crate on the 5th, 10th, 15th, … day with a drink.
+pub const ACTIVE_DAY_EVERY: usize = 5;
 /// A streak bonus crate at 5, 10, 15, … consecutive lab days.
 pub const STREAK_BONUS_EVERY: i64 = 5;
 /// A milestone crate for the 25th, 50th, 75th, … drink.
@@ -15,7 +18,7 @@ pub const MILESTONE_EVERY: usize = 25;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ActivityRewards {
-    /// Local days with at least one drink logged at or after the cutoff.
+    /// Every ACTIVE_DAY_EVERY-th local day with a drink, counted from the cutoff.
     pub daily: Vec<NaiveDate>,
     /// Days on which the lab-day streak reached a multiple of STREAK_BONUS_EVERY.
     pub streak: Vec<NaiveDate>,
@@ -47,7 +50,16 @@ fn next_lab_day(mut date: NaiveDate) -> NaiveDate {
 /// `consumed_at` must be sorted ascending. Only rewards earned at or after
 /// `cutoff` are returned, but streaks count the full history so a streak that
 /// was already running at the cutoff keeps its length.
-pub fn activity_rewards(consumed_at: &[i64], tz: &Tz, cutoff: i64) -> ActivityRewards {
+///
+/// `daily_granted` are days that already earned an active-day crate. They
+/// keep counting as active days even if their drinks were deleted later, so
+/// logging and undoing a drink cannot make the next day the "5th" again.
+pub fn activity_rewards(
+    consumed_at: &[i64],
+    tz: &Tz,
+    cutoff: i64,
+    daily_granted: &[NaiveDate],
+) -> ActivityRewards {
     let mut rewards = ActivityRewards::default();
 
     let mut all_days = BTreeSet::new();
@@ -62,7 +74,15 @@ pub fn activity_rewards(consumed_at: &[i64], tz: &Tz, cutoff: i64) -> ActivityRe
         }
     }
 
-    rewards.daily = rewarded_days.iter().copied().collect();
+    let mut active_days = rewarded_days.clone();
+    active_days.extend(daily_granted.iter().copied());
+    rewards.daily = active_days
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(index, _)| (index + 1) % ACTIVE_DAY_EVERY == 0)
+        .map(|(_, day)| day)
+        .collect();
     rewards.advent = rewarded_days
         .iter()
         .copied()
@@ -102,17 +122,38 @@ mod tests {
     }
 
     #[test]
-    fn one_daily_crate_per_active_day_after_the_cutoff() {
+    fn one_crate_every_fifth_active_day_after_the_cutoff() {
         let tz = chrono_tz::Europe::Berlin;
-        let drinks = [
-            at(&tz, 2026, 11, 2, 9),
+        let mut drinks = vec![
+            at(&tz, 2026, 11, 2, 9), // before the cutoff: does not count
             at(&tz, 2026, 11, 3, 9),
             at(&tz, 2026, 11, 3, 14), // second drink, same day
             at(&tz, 2026, 11, 4, 23), // late evening still counts for the 4th
         ];
-        let rewards = activity_rewards(&drinks, &tz, at(&tz, 2026, 11, 3, 0));
+        // Gaps don't matter: the days need not be in a row.
+        for day in [9, 12, 20, 21, 23, 24, 25, 27] {
+            drinks.push(at(&tz, 2026, 11, day, 9));
+        }
+        let rewards = activity_rewards(&drinks, &tz, at(&tz, 2026, 11, 3, 0), &[]);
         let days: Vec<_> = rewards.daily.iter().map(|d| d.to_string()).collect();
-        assert_eq!(days, ["2026-11-03", "2026-11-04"]);
+        // Active days: 3, 4, 9, 12, [20], 21, 23, 24, 25, [27].
+        assert_eq!(days, ["2026-11-20", "2026-11-27"]);
+    }
+
+    #[test]
+    fn deleting_a_rewarded_drink_does_not_shift_the_count() {
+        let tz = chrono_tz::Europe::Berlin;
+        // Five active days earned a crate on the 5th (7 Nov) ...
+        let rewarded_fifth = NaiveDate::from_ymd_opt(2026, 11, 7).unwrap();
+        // ... then that day's drink was deleted, and the user drinks on the 8th.
+        let drinks: Vec<_> = [3, 4, 5, 6, 8]
+            .iter()
+            .map(|d| at(&tz, 2026, 11, *d, 9))
+            .collect();
+        let rewards = activity_rewards(&drinks, &tz, 0, &[rewarded_fifth]);
+        let days: Vec<_> = rewards.daily.iter().map(|d| d.to_string()).collect();
+        // The 8th is the 6th active day, not a new 5th.
+        assert_eq!(days, ["2026-11-07"]);
     }
 
     #[test]
@@ -125,7 +166,7 @@ mod tests {
         }
         // A gap (Mon 16 Nov missed), then a new run.
         drinks.push(at(&tz, 2026, 11, 17, 9));
-        let rewards = activity_rewards(&drinks, &tz, 0);
+        let rewards = activity_rewards(&drinks, &tz, 0, &[]);
         let streak: Vec<_> = rewards.streak.iter().map(|d| d.to_string()).collect();
         // Day 5 of the run is Tue 10 Nov; day 10 would be 17 Nov, but the run broke.
         assert_eq!(streak, ["2026-11-10"]);
@@ -139,9 +180,10 @@ mod tests {
             .map(|d| at(&tz, 2026, 11, *d, 9))
             .collect();
         // Cutoff on Friday: four days of history count for the run, the bonus is new.
-        let rewards = activity_rewards(&drinks, &tz, at(&tz, 2026, 11, 6, 0));
+        let rewards = activity_rewards(&drinks, &tz, at(&tz, 2026, 11, 6, 0), &[]);
         assert_eq!(rewards.streak.len(), 1);
-        assert_eq!(rewards.daily.len(), 1);
+        // Only one active day after the cutoff: no active-day crate yet.
+        assert!(rewards.daily.is_empty());
     }
 
     #[test]
@@ -153,7 +195,7 @@ mod tests {
             at(&tz, 2026, 12, 24, 9),
             at(&tz, 2026, 12, 25, 9),
         ];
-        let rewards = activity_rewards(&drinks, &tz, 0);
+        let rewards = activity_rewards(&drinks, &tz, 0, &[]);
         let advent: Vec<_> = rewards.advent.iter().map(|d| d.to_string()).collect();
         assert_eq!(advent, ["2026-12-01", "2026-12-24"]);
     }
@@ -163,7 +205,7 @@ mod tests {
         let tz = chrono_tz::Europe::Berlin;
         let drinks: Vec<i64> = (0..80).map(|i| 1_000 + i * 60).collect();
         let cutoff = drinks[30]; // drink 31
-        let rewards = activity_rewards(&drinks, &tz, cutoff);
+        let rewards = activity_rewards(&drinks, &tz, cutoff, &[]);
         let counts: Vec<_> = rewards.milestones.iter().map(|(n, _)| *n).collect();
         assert_eq!(counts, [50, 75]);
     }

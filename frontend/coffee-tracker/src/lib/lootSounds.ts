@@ -87,3 +87,74 @@ export function playLanding(rarity: Rarity) {
     }
   }
 }
+
+/** Peg clicking past the wheel's flapper. */
+export function playWheelTick() {
+  tone(1500 + Math.random() * 120, { duration: 0.022, volume: 0.035, type: 'square' })
+  tone(220, { duration: 0.03, volume: 0.02, type: 'sine' })
+}
+
+/** The wheel being pulled back before the throw. */
+export function playWheelWindup() {
+  tone(320, { duration: 0.4, volume: 0.035, type: 'sawtooth', slideTo: 160 })
+}
+
+/** Fanfare for a real prize; `big` (jackpot, free drink) adds a second phrase and sparkles. */
+export function playWheelWin(big: boolean) {
+  const notes = big ? [523, 659, 784, 1047, 784, 1047, 1319] : [659, 784, 1047]
+  notes.forEach((note, index) => {
+    tone(note, { start: index * 0.11, duration: index === notes.length - 1 ? 0.6 : 0.18, volume: 0.05 })
+    tone(note / 2, { start: index * 0.11, duration: 0.16, volume: 0.025, type: 'square' })
+  })
+  if (big) {
+    for (let i = 0; i < 10; i += 1) {
+      tone(1800 + Math.random() * 1600, {
+        start: 0.7 + i * 0.06,
+        duration: 0.12,
+        volume: 0.016,
+        type: 'sine',
+      })
+    }
+  }
+}
+
+/** Sad trombone: wah, wah, wah, waaah. */
+export function playWheelLose() {
+  const steps: [number, number][] = [
+    [392, 370],
+    [370, 349],
+    [349, 330],
+  ]
+  steps.forEach(([from, to], index) => {
+    tone(from, { start: index * 0.32, duration: 0.3, volume: 0.045, type: 'sawtooth', slideTo: to })
+  })
+  // The long last note wobbles down.
+  for (let i = 0; i < 6; i += 1) {
+    tone(i % 2 ? 300 : 311, {
+      start: 0.96 + i * 0.12,
+      duration: 0.13,
+      volume: 0.045,
+      type: 'sawtooth',
+      slideTo: i === 5 ? 233 : i % 2 ? 311 : 300,
+    })
+  }
+}
+
+/** Shared on/off switch for crate and wheel sounds (per device). */
+const SOUND_KEY = 'coffee-loot-sound'
+
+export function readSoundPreference() {
+  try {
+    return localStorage.getItem(SOUND_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export function writeSoundPreference(on: boolean) {
+  try {
+    localStorage.setItem(SOUND_KEY, on ? 'on' : 'off')
+  } catch {
+    // per-device convenience only
+  }
+}

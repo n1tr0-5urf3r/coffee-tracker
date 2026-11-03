@@ -1,4 +1,4 @@
-import { Banknote, BookOpenText, CalendarClock, CheckCircle2, Copy, ExternalLink, Mail, Plus, ReceiptText, Send, type LucideIcon } from 'lucide-react'
+import { Banknote, BookOpenText, CalendarClock, CheckCircle2, Copy, ExternalLink, FerrisWheel, Mail, Plus, ReceiptText, Send, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import {
@@ -27,18 +27,20 @@ import type {
 import { Button } from '../components/Button'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
+import { WheelStatsPanel } from '../components/WheelStatsPanel'
 import { cn } from '../lib/cn'
 import { formatUnixDate } from '../lib/date'
 import { formatEuros, paymentAmountDueCents } from '../lib/money'
 import { useToast } from '../lib/toast'
 import { branding } from '../config/branding'
 
-type PaymentsSection = 'overview' | 'expenses' | 'ledger'
+type PaymentsSection = 'overview' | 'expenses' | 'ledger' | 'wheel'
 
 const staffSections: { section: PaymentsSection; to: string; label: string; icon: LucideIcon }[] = [
   { section: 'overview', to: '/payments', label: 'Overview', icon: Banknote },
   { section: 'expenses', to: '/payments/expenses', label: 'Expenses', icon: ReceiptText },
   { section: 'ledger', to: '/payments/ledger', label: 'Ledger', icon: BookOpenText },
+  { section: 'wheel', to: '/payments/wheel', label: 'Wheel', icon: FerrisWheel },
 ]
 
 export function PaymentsPage() {
@@ -162,6 +164,7 @@ export function PaymentsPage() {
             display_name: me?.user.display_name ?? 'You',
             user_type: me?.user.user_type ?? 'guest',
             unpaid_amount_cents: myPayment.data.unpaid_amount_cents,
+            unpaid_wheel_cents: myPayment.data.unpaid_wheel_cents,
             unpaid_drink_count: myPayment.data.unpaid_drink_count,
             paid_amount_cents: myPayment.data.paid_amount_cents,
             paid_drink_count: myPayment.data.paid_drink_count,
@@ -319,7 +322,10 @@ export function PaymentsPage() {
                                   {entry.user_type}
                                 </span>
                               </td>
-                              <td className="px-3 py-3">{formatEuros(entry.unpaid_amount_cents)}</td>
+                              <td className="px-3 py-3">
+                                {formatEuros(entry.unpaid_amount_cents)}
+                                <WheelShare cents={entry.unpaid_wheel_cents} />
+                              </td>
                               <td className="px-3 py-3">
                                 {formatEuros(entry.expense_amount_cents)}
                               </td>
@@ -333,7 +339,7 @@ export function PaymentsPage() {
                                 {formatUnixDate(entry.last_paid_at, 'Never')}
                               </td>
                               <td className="rounded-r-2xl px-3 py-3 text-right">
-                                {canMarkEntry && entry.unpaid_drink_count > 0 ? (
+                                {canMarkEntry && (entry.unpaid_drink_count > 0 || entry.unpaid_amount_cents > 0) ? (
                                   <Button
                                     className="whitespace-nowrap"
                                     disabled={
@@ -411,6 +417,8 @@ export function PaymentsPage() {
         />
       ) : null}
 
+      {section === 'wheel' ? <WheelStatsPanel /> : null}
+
       {section === 'expenses' ? (
         <ExpensesTracker
           entries={expenses.data?.entries ?? []}
@@ -451,7 +459,7 @@ export function resolvePaymentsSection(
   sectionParam: string | undefined,
   isStaff: boolean,
 ): PaymentsSection {
-  if (isStaff && (sectionParam === 'expenses' || sectionParam === 'ledger')) {
+  if (isStaff && (sectionParam === 'expenses' || sectionParam === 'ledger' || sectionParam === 'wheel')) {
     return sectionParam
   }
   return 'overview'
@@ -461,7 +469,7 @@ function StaffSectionTabs() {
   return (
     <nav
       aria-label="Payments sections"
-      className="grid grid-cols-3 gap-1 rounded-3xl border-2 border-white/80 bg-white/70 p-1 shadow-soft dark:border-white/10 dark:bg-berry-900/70"
+      className="grid grid-cols-2 gap-1 rounded-3xl sm:grid-cols-4 border-2 border-white/80 bg-white/70 p-1 shadow-soft dark:border-white/10 dark:bg-berry-900/70"
     >
       {staffSections.map((item) => {
         const Icon = item.icon
@@ -558,8 +566,11 @@ function PaymentLinkGenerator({
           </p>
           {payment ? (
             <p className="mt-1 text-xs font-black uppercase tracking-[0.12em] text-berry-700/80 dark:text-rose-100/80">
-              Debt {formatEuros(unpaidAmountCents)} · Expense balance{' '}
-              {formatEuros(expenseBalanceCents)}
+              Debt {formatEuros(unpaidAmountCents)}
+              {payment.unpaid_wheel_cents > 0
+                ? ` (incl. ${formatEuros(payment.unpaid_wheel_cents)} lucky wheel)`
+                : ''}{' '}
+              · Expense balance {formatEuros(expenseBalanceCents)}
             </p>
           ) : null}
         </div>
@@ -731,7 +742,11 @@ function PaymentEntryCard({
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-sm">
-        <PaymentMetric label="Current debt" value={formatEuros(entry.unpaid_amount_cents)} />
+        <PaymentMetric
+          label="Current debt"
+          value={formatEuros(entry.unpaid_amount_cents)}
+          hint={entry.unpaid_wheel_cents > 0 ? `incl. ${formatEuros(entry.unpaid_wheel_cents)} lucky wheel` : undefined}
+        />
         <PaymentMetric label="Expenses" value={formatEuros(entry.expense_amount_cents)} />
         <PaymentMetric label="Balance" value={formatEuros(balanceCents)} />
         <PaymentMetric label="Unpaid cups" value={String(entry.unpaid_drink_count)} />
@@ -744,7 +759,7 @@ function PaymentEntryCard({
       </div>
 
       <div className="mt-3">
-        {canMarkEntry && entry.unpaid_drink_count > 0 ? (
+        {canMarkEntry && (entry.unpaid_drink_count > 0 || entry.unpaid_amount_cents > 0) ? (
           <Button className="w-full" disabled={isPending || !hasRecipients} onClick={onMarkPaid}>
             <CheckCircle2 className="size-4" />
             Mark paid
@@ -1040,14 +1055,25 @@ function recipientName(recipients: PaymentRecipient[], userId: string) {
   return recipients.find((recipient) => recipient.user_id === userId)?.display_name ?? 'staff'
 }
 
-function PaymentMetric({ label, value }: { label: string; value: string }) {
+function PaymentMetric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-2xl bg-white/70 p-3 dark:bg-berry-950/40">
       <p className="text-[0.65rem] font-black uppercase tracking-[0.12em] text-berry-700 dark:text-rose-100">
         {label}
       </p>
       <p className="mt-1 break-words font-display font-black">{value}</p>
+      {hint ? <p className="text-xs font-bold text-berry-700 dark:text-rose-100">{hint}</p> : null}
     </div>
+  )
+}
+
+/** "incl. 0,50 € lucky wheel" under a debt that contains wheel spins. */
+function WheelShare({ cents }: { cents: number }) {
+  if (cents <= 0) return null
+  return (
+    <span className="block text-xs font-bold text-berry-700 dark:text-rose-100">
+      incl. {formatEuros(cents)} lucky wheel
+    </span>
   )
 }
 

@@ -26,6 +26,7 @@ use crate::{
         payment_webhooks_configured,
     },
     stats::resolve_tz,
+    wheel,
 };
 
 pub mod scheduler;
@@ -128,6 +129,8 @@ pub struct PaymentSummary {
     pub display_name: String,
     pub user_type: String,
     pub unpaid_amount_cents: i64,
+    /// Lucky wheel spins included in `unpaid_amount_cents`.
+    pub unpaid_wheel_cents: i64,
     pub unpaid_drink_count: i64,
     pub paid_amount_cents: i64,
     pub paid_drink_count: i64,
@@ -148,6 +151,8 @@ pub struct PaymentsResponse {
 pub struct MyPaymentResponse {
     pub user_id: String,
     pub unpaid_amount_cents: i64,
+    /// Lucky wheel spins included in `unpaid_amount_cents`.
+    pub unpaid_wheel_cents: i64,
     pub unpaid_drink_count: i64,
     pub paid_amount_cents: i64,
     pub paid_drink_count: i64,
@@ -250,6 +255,7 @@ pub(crate) async fn list_payments(
             display_name: user.display_name,
             user_type: user.user_type,
             unpaid_amount_cents: totals.unpaid_amount_cents,
+            unpaid_wheel_cents: totals.unpaid_wheel_cents,
             unpaid_drink_count: totals.unpaid_drink_count,
             paid_amount_cents: totals.paid_amount_cents,
             paid_drink_count: totals.paid_drink_count,
@@ -291,6 +297,7 @@ pub(crate) async fn my_payments(
     Ok(Json(MyPaymentResponse {
         user_id: user.id,
         unpaid_amount_cents: totals.unpaid_amount_cents,
+        unpaid_wheel_cents: totals.unpaid_wheel_cents,
         unpaid_drink_count: totals.unpaid_drink_count,
         paid_amount_cents: totals.paid_amount_cents,
         paid_drink_count: totals.paid_drink_count,
@@ -435,20 +442,41 @@ pub(crate) async fn mark_paid(
     user: CurrentUser,
     Json(input): Json<MarkPaidRequest>,
 ) -> ApiResult<(StatusCode, Json<PaymentRecord>)> {
+    settle_tab(state, user, input, now_ts).await
+}
+
+/// `mark_paid` with an injectable clock, read once the write lock is held,
+/// so tests can pin the payment to an exact second.
+pub(crate) async fn settle_tab(
+    state: AppState,
+    user: CurrentUser,
+    input: MarkPaidRequest,
+    clock: impl FnOnce() -> i64,
+) -> ApiResult<(StatusCode, Json<PaymentRecord>)> {
     ensure_can_mark_paid(&user, &input.user_id)?;
 
     let target_user = load_current_user(&state, &input.user_id).await?;
     let recipient = load_current_user(&state, &input.received_by_user_id).await?;
     ensure_payment_recipient(&recipient)?;
 
-    let totals = user_totals(&state, &input.user_id).await?;
-    if totals.unpaid_drink_count == 0 {
+    // Take the write lock before reading the tab: no drink, spin or payment
+    // can commit until this payment is stored, so the totals are final. One
+    // `now` is both the (exclusive) upper bound of what is billed here and the
+    // new cutoff, so anything stamped in this very second lands on the next
+    // tab exactly once instead of being billed twice or never.
+    let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE users SET updated_at = updated_at WHERE id = ?")
+        .bind(&input.user_id)
+        .execute(&mut *tx)
+        .await?;
+    let now = clock();
+    let totals = user_totals_until(&state, &input.user_id, now).await?;
+    if totals.unpaid_drink_count == 0 && totals.unpaid_amount_cents == 0 {
         return Err(ApiError::BadRequest(
             "user has no unpaid consumptions".into(),
         ));
     }
 
-    let now = now_ts();
     let id = Uuid::new_v4().to_string();
     let period_end_ts = now;
     sqlx::query(
@@ -466,8 +494,9 @@ pub(crate) async fn mark_paid(
     .bind(input.note.as_ref())
     .bind(now)
     .bind(now)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     notify_payment_marked_paid(
         &state,
@@ -729,6 +758,7 @@ fn amount_due_cents(unpaid_amount_cents: i64, expense_balance_cents: i64) -> i64
 
 struct UserTotals {
     unpaid_amount_cents: i64,
+    unpaid_wheel_cents: i64,
     unpaid_drink_count: i64,
     paid_amount_cents: i64,
     paid_drink_count: i64,
@@ -736,6 +766,11 @@ struct UserTotals {
 }
 
 async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
+    user_totals_until(state, user_id, i64::MAX).await
+}
+
+/// Totals of the open tab, counting only drinks and spins before `until`.
+async fn user_totals_until(state: &AppState, user_id: &str, until: i64) -> ApiResult<UserTotals> {
     let (max_period_end, last_paid_at): (Option<i64>, Option<i64>) =
         sqlx::query_as("SELECT MAX(period_end_ts), MAX(paid_at) FROM payments WHERE user_id = ?")
             .bind(user_id)
@@ -747,18 +782,22 @@ async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
         "SELECT COUNT(*)
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
-         WHERE c.user_id = ? AND c.consumed_at >= ?",
+         WHERE c.user_id = ? AND c.consumed_at >= ? AND c.consumed_at < ?",
     )
     .bind(user_id)
     .bind(cutoff)
+    .bind(until)
     .fetch_one(&state.db)
     .await?;
 
     // Stamp cards run per calendar month, so positions are counted from the 1st
     // of the month the open tab starts in - not from the payment cutoff itself.
     let tz = resolve_tz(&state.config.timezone);
-    let paid_drinks = paid_drinks_since_month_of(state, user_id, cutoff).await?;
-    let unpaid_amount_cents = discounted_amount_cents(&paid_drinks, cutoff, &tz);
+    let mut paid_drinks = paid_drinks_since_month_of(state, user_id, cutoff).await?;
+    paid_drinks.retain(|drink| drink.consumed_at < until);
+    let unpaid_wheel_cents = wheel::unpaid_wheel_cents(state, user_id, cutoff, until).await?;
+    let unpaid_amount_cents =
+        discounted_amount_cents(&paid_drinks, cutoff, &tz) + unpaid_wheel_cents;
 
     let paid: (Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT SUM(amount_cents), SUM(drink_count) FROM payments WHERE user_id = ?",
@@ -769,6 +808,7 @@ async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
 
     Ok(UserTotals {
         unpaid_amount_cents,
+        unpaid_wheel_cents,
         unpaid_drink_count,
         paid_amount_cents: paid.0.unwrap_or(0),
         paid_drink_count: paid.1.unwrap_or(0),

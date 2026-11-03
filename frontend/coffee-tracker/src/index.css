@@ -338,6 +338,73 @@ html[data-skin] body {
   50% { box-shadow: 0 5px 0 rgb(111 20 48 / 16%), 0 0 0 8px rgb(255 209 102 / 45%); }
 }
 
+/* Waiting crate (CrateReminder): idles, then a short wobble-and-hop every 4.5 s. */
+.crate-wiggle {
+  animation: crate-wiggle 4.5s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+@keyframes crate-wiggle {
+  0%, 72%, 100% { transform: translateY(0) rotate(0) scale(1); }
+  76% { transform: translateY(0) rotate(0) scale(1.08, 0.9); }
+  80% { transform: translateY(-9px) rotate(-9deg) scale(0.96, 1.06); }
+  84% { transform: translateY(-4px) rotate(8deg); }
+  88% { transform: translateY(-1px) rotate(-6deg); }
+  92% { transform: translateY(0) rotate(3deg) scale(1.04, 0.96); }
+  96% { transform: translateY(0) rotate(-1deg) scale(1); }
+}
+.crate-sparkle {
+  opacity: 0;
+  animation: crate-sparkle 4.5s ease-out infinite;
+}
+@keyframes crate-sparkle {
+  0%, 78%, 100% { opacity: 0; transform: scale(0.4) rotate(0); }
+  84% { opacity: 1; transform: scale(1.2) rotate(20deg); }
+  94% { opacity: 0; transform: scale(0.8) rotate(40deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crate-wiggle { animation: none; }
+  .crate-sparkle { animation: none; opacity: 0; }
+}
+
+/* ---------- Lucky wheel (see components/LuckyWheel.tsx) ---------- */
+
+/* Marquee bulbs on the rim: a slow chase at rest, a fast flicker while spinning. */
+.wheel-bulb {
+  fill: #ffd166;
+  animation: wheel-bulb 1.6s steps(1, end) infinite;
+}
+.wheel-bulb-alt { animation-delay: -0.8s; }
+.wheel-bulb-fast { animation-duration: 0.24s; }
+.wheel-bulb-fast.wheel-bulb-alt { animation-delay: -0.12s; }
+@keyframes wheel-bulb {
+  0% { fill: #fff7e0; filter: drop-shadow(0 0 4px #ffd166); }
+  50% { fill: #b7791f; filter: none; }
+}
+
+/* Winning slice flashes a few times after landing. */
+.wheel-win-flash {
+  opacity: 0;
+  animation: wheel-win-flash 0.5s ease-in-out 4;
+}
+@keyframes wheel-win-flash {
+  50% { opacity: 0.5; }
+}
+
+/* Waiting free spin (CrateReminder): a lazy idle turn with a little kick. */
+.wheel-idle-spin {
+  animation: wheel-idle-spin 6s cubic-bezier(0.2, 0.7, 0.2, 1) infinite;
+}
+@keyframes wheel-idle-spin {
+  0%, 60% { transform: rotate(0); }
+  64% { transform: rotate(-20deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-bulb, .wheel-idle-spin { animation: none; }
+  .wheel-win-flash { animation: none; opacity: 0.35; }
+}
+
 /* ---------- Seasonal themes (see src/lib/seasons.ts) ---------- */
 
 :root[data-season='newyear'] { --color-season: #f5b700; }

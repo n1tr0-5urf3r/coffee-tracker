@@ -3,6 +3,7 @@ import {
   BarChart3,
   Coffee,
   Banknote,
+  FerrisWheel,
   Gift,
   LogOut,
   Medal,
@@ -13,7 +14,7 @@ import {
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
-import { useLocker, useMe } from '../api/queries'
+import { useLocker, useMe, useWheel } from '../api/queries'
 import { Button } from './Button'
 import { LogoMark } from './LogoMark'
 import { cn } from '../lib/cn'
@@ -21,12 +22,16 @@ import { AppFooter } from './AppFooter'
 import { branding } from '../config/branding'
 import { SeasonBadge, SeasonalDecor } from './SeasonalDecor'
 import { UserAvatar } from './UserAvatar'
+import { CrateReminder } from './CrateReminder'
 import { equippedAvatarArtwork } from '../lib/cosmetics'
 
 export function AppShell() {
   const { data } = useMe()
   const { data: locker } = useLocker(Boolean(data))
   const boxes = locker?.boxes_available ?? 0
+  const isMember = data?.user.user_type === 'member'
+  const { data: wheel } = useWheel(isMember)
+  const freeSpins = wheel?.free_spins_available ?? 0
   const equippedTitle = locker?.items.find((item) => item.id === locker.equipped.title)?.name
   const avatarArtwork = equippedAvatarArtwork(locker)
   const navigate = useNavigate()
@@ -38,6 +43,9 @@ export function AppShell() {
     { to: '/dashboard', label: 'Stats', icon: BarChart3 },
     { to: '/achievements', label: 'Badges', icon: Medal },
     { to: '/locker', label: 'Locker', icon: Gift, desktopOnly: true, badge: boxes },
+    ...(isMember
+      ? [{ to: '/wheel', label: 'Lucky wheel', icon: FerrisWheel, desktopOnly: true, badge: freeSpins }]
+      : []),
     { to: '/leaderboard', label: `${branding.organizationShortName} Ranking`, mobileLabel: 'Rank', icon: Trophy },
     { to: '/payments', label: 'Payments', mobileLabel: 'Pay', icon: Banknote },
     { to: '/settings', label: 'Settings', icon: Settings },
@@ -79,18 +87,29 @@ export function AppShell() {
       <header className="sticky top-0 z-30 border-b border-white/50 bg-surface/82 backdrop-blur-xl dark:border-white/10 dark:bg-berry-950/82">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
           <LogoMark />
+          {/* Phones have no room for a Locker tab, so the header carries a labelled entry. */}
           <NavLink
             to="/locker"
-            aria-label={boxes > 0 ? `Locker, ${boxes} unopened lootboxes` : 'Locker'}
-            className="relative md:hidden"
+            aria-label={boxes > 0 ? `Locker, ${boxes} unopened crates` : 'Locker'}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-2 rounded-full py-1 pl-3 pr-1 font-display text-xs font-black shadow-soft transition md:hidden',
+                isActive
+                  ? 'bg-primary text-white dark:bg-blush dark:text-berry-950'
+                  : boxes > 0
+                    ? 'bg-sun text-berry-950'
+                    : 'bg-white text-berry-700 dark:bg-berry-900 dark:text-rose-100',
+              )
+            }
           >
+            <Gift className="size-4" aria-hidden="true" />
+            <span>{boxes > 0 ? `${boxes > 9 ? '9+' : boxes} to open` : 'Locker'}</span>
             <UserAvatar
               name={data?.user.display_name ?? 'Coffee friend'}
               artworkPath={avatarArtwork}
               frameId={locker?.equipped.frame}
-              size="md"
+              size="sm"
             />
-            <CountBadge count={boxes} />
           </NavLink>
           <div className="hidden items-center gap-3 md:flex">
             <SeasonBadge />
@@ -161,16 +180,8 @@ export function AppShell() {
           <Outlet />
           <AppFooter />
         </main>
+        <CrateReminder />
       </div>
     </div>
-  )
-}
-
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-sun px-1 text-[0.65rem] font-black text-berry-950 ring-2 ring-surface dark:ring-berry-950">
-      {count > 9 ? '9+' : count}
-    </span>
   )
 }

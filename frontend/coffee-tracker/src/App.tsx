@@ -17,6 +17,7 @@ import { LogPage } from './pages/LogPage'
 import { PaymentsPage } from './pages/PaymentsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StempelkartePage } from './pages/StempelkartePage'
+import { WheelPage } from './pages/WheelPage'
 import { SeasonalThemeProvider } from './lib/seasonalTheme'
 import { ThemeProvider } from './lib/theme'
 import { ToastProvider } from './lib/toast'
@@ -48,6 +49,7 @@ const router = createBrowserRouter([
           { path: '/dashboard', element: <DashboardPage /> },
           { path: '/achievements', element: <AchievementsPage /> },
           { path: '/locker', element: <LockerPage /> },
+          { path: '/wheel', element: <WheelPage /> },
           { path: '/leaderboard', element: <LeaderboardPage /> },
           { path: '/payments/:section?', element: <PaymentsPage /> },
           { path: '/settings', element: <SettingsPage /> },

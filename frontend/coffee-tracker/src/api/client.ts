@@ -77,6 +77,12 @@ export type StockItem = components['schemas']['StockItem']
 export type StockResponse = components['schemas']['StockResponse']
 export type UpdateStockRequest = components['schemas']['UpdateStockRequest']
 export type VersionResponse = components['schemas']['VersionResponse']
+export type WheelPrize = components['schemas']['WheelPrize']
+export type WheelOdds = components['schemas']['WheelOdds']
+export type WheelSpin = components['schemas']['WheelSpin']
+export type WheelStatus = components['schemas']['WheelStatus']
+export type WheelSpinResponse = components['schemas']['WheelSpinResponse']
+export type WheelStats = components['schemas']['WheelStats']
 
 const apiBaseUrl = runtimeConfig.API_BASE_URL ?? import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -246,6 +252,13 @@ export const api = {
       method: 'PATCH',
       json: body as unknown as JsonBody,
     }),
+  wheel: () => request<WheelStatus>('/api/v1/wheel/me'),
+  spinWheel: (paid: boolean, spinId: string) =>
+    request<WheelSpinResponse>('/api/v1/wheel/spin', {
+      method: 'POST',
+      json: { paid, spin_id: spinId },
+    }),
+  wheelStats: () => request<WheelStats>('/api/v1/wheel/stats'),
   chores: () => request<ChoresResponse>('/api/v1/chores'),
   logChore: (chore: string) =>
     request<ChoreLogResponse>(`/api/v1/chores/${encodeURIComponent(chore)}`, { method: 'POST' }),

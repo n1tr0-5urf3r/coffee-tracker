@@ -42,6 +42,9 @@ self.addEventListener('fetch', (event) => {
             machine_id: payload.machine_id,
             beverage_id: payload.beverage_id,
             consumed_at: Math.floor(Date.now() / 1000),
+            // Same shape as the API response; rewards show up after the replay.
+            crates_earned: [],
+            free_drink_voucher_used: false,
           }),
           {
             status: 202,

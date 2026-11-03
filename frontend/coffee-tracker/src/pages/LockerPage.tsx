@@ -4,6 +4,7 @@ import {
   Bean,
   CalendarCheck,
   Check,
+  FerrisWheel,
   Flame,
   Gift,
   Hammer,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiError, type CosmeticItem, type CosmeticSlot, type LootboxOpenResponse } from '../api/client'
 import {
   queryKeys,
@@ -92,6 +94,7 @@ export function LockerPage() {
     [],
   )
   const name = me?.user.display_name ?? 'Coffee friend'
+  const isMember = me?.user.user_type === 'member'
   const equippedTitle = locker?.items.find((item) => item.id === locker.equipped.title)?.name
 
   const toggleSound = () => {
@@ -229,6 +232,15 @@ export function LockerPage() {
           <span className="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
             {ownedCount}/{locker.items.length} collected
           </span>
+          {isMember ? (
+            <Link
+              to="/wheel"
+              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-black text-white shadow-button transition hover:bg-secondary dark:bg-blush dark:text-berry-950"
+            >
+              <FerrisWheel className="size-4" aria-hidden="true" />
+              Lucky wheel
+            </Link>
+          ) : null}
         </div>
       </PageHeader>
 
@@ -287,7 +299,7 @@ export function LockerPage() {
                 >
                   {locker.boxes_available > 0
                     ? 'A crate is waiting. Feeling lucky?'
-                    : 'No crates right now. Log a drink today, keep your streak, or do a chore at the machine to earn the next one.'}
+                    : 'No crates right now. Keep logging drinks, keep your streak, or do a chore at the machine to earn the next one.'}
                 </motion.p>
               )}
             </AnimatePresence>
@@ -350,7 +362,7 @@ export function LockerPage() {
           <Card>
             <p className="mb-3 font-display text-xl font-black">How to earn crates</p>
             <ul className="space-y-2 text-sm font-bold text-berry-700 dark:text-rose-100">
-              <SourceRow icon={<CalendarCheck className="size-4" />} label="Every day you log a drink" count={locker.sources.daily} />
+              <SourceRow icon={<CalendarCheck className="size-4" />} label="Every 5th day you log a drink" count={locker.sources.daily} />
               <SourceRow icon={<Flame className="size-4" />} label="Streak bonus every 5 lab days" count={locker.sources.streak} />
               <SourceRow icon={<Milestone className="size-4" />} label="Every 25th drink" count={locker.sources.milestone} />
               <SourceRow icon={<Trophy className="size-4" />} label="Achievement unlocked" count={locker.sources.achievement} />
@@ -359,6 +371,9 @@ export function LockerPage() {
               <SourceRow icon={<ShoppingBasket className="size-4" />} label="Shopping for the team" count={locker.sources.shopping} />
               <SourceRow icon={<WashingMachine className="size-4" />} label="Weekly machine chores" count={locker.sources.cleaning} />
               <SourceRow icon={<TreePine className="size-4" />} label="Advent calendar (1–24 Dec)" count={locker.sources.advent} />
+              {isMember ? (
+                <SourceRow icon={<FerrisWheel className="size-4" />} label="Lucky wheel prizes" count={locker.sources.wheel} />
+              ) : null}
             </ul>
           </Card>
 

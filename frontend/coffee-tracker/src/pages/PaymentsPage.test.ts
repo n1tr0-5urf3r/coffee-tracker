@@ -16,11 +16,13 @@ describe('resolvePaymentsSection', () => {
   it('opens staff-only sections for staff', () => {
     expect(resolvePaymentsSection('expenses', true)).toBe('expenses')
     expect(resolvePaymentsSection('ledger', true)).toBe('ledger')
+    expect(resolvePaymentsSection('wheel', true)).toBe('wheel')
   })
 
   it('falls back to the overview for non-staff and unknown sections', () => {
     expect(resolvePaymentsSection('expenses', false)).toBe('overview')
     expect(resolvePaymentsSection('ledger', false)).toBe('overview')
+    expect(resolvePaymentsSection('wheel', false)).toBe('overview')
     expect(resolvePaymentsSection('nope', true)).toBe('overview')
     expect(resolvePaymentsSection(undefined, true)).toBe('overview')
   })
@@ -67,6 +69,7 @@ function paymentEntry(
     display_name: displayName,
     user_type: 'member',
     unpaid_amount_cents: amountDueCents,
+    unpaid_wheel_cents: 0,
     unpaid_drink_count: amountDueCents > 0 ? 1 : 0,
     paid_amount_cents: 0,
     paid_drink_count: 0,

@@ -16,6 +16,7 @@ pub mod social;
 pub mod stats;
 pub mod stock;
 pub mod version;
+pub mod wheel;
 
 use axum::{
     Router,
@@ -63,7 +64,8 @@ pub async fn build_app(config: Config, db: SqlitePool) -> anyhow::Result<Router>
         .merge(payments::router())
         .merge(expenses::router())
         .merge(stock::router())
-        .merge(version::router());
+        .merge(version::router())
+        .merge(wheel::router());
 
     Ok(Router::new()
         .nest("/api/v1", api)

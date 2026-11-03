@@ -4,7 +4,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
     AppState, achievements, auth, catalog, cleaning, consumptions, cosmetics, expenses, loyalty,
-    payments, social, stats, stock, version,
+    payments, social, stats, stock, version, wheel,
 };
 
 pub fn router() -> Router<AppState> {
@@ -68,7 +68,10 @@ pub fn openapi_json() -> String {
         expenses::create_expense,
         stock::list_stock,
         stock::update_stock,
-        version::version
+        version::version,
+        wheel::my_wheel,
+        wheel::spin_wheel,
+        wheel::wheel_stats
     ),
     components(
         schemas(
@@ -155,7 +158,16 @@ pub fn openapi_json() -> String {
             stock::StockItem,
             stock::StockResponse,
             stock::UpdateStockRequest,
-            version::VersionResponse
+            version::VersionResponse,
+            wheel::WheelPrize,
+            wheel::WheelOdds,
+            wheel::WheelSpin,
+            wheel::WheelStatus,
+            wheel::WheelSpinRequest,
+            wheel::WheelSpinResponse,
+            wheel::WheelPrizeStat,
+            wheel::WheelWeekStat,
+            wheel::WheelStats
         )
     ),
     tags(

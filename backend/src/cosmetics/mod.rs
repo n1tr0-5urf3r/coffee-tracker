@@ -44,7 +44,7 @@ pub fn router() -> Router<AppState> {
         .route("/cosmetics/artwork/{item_id}", get(private_artwork))
 }
 
-fn is_member(user: &CurrentUser) -> bool {
+pub(crate) fn is_member(user: &CurrentUser) -> bool {
     user.user_type == "member"
 }
 
@@ -144,6 +144,8 @@ pub struct LootboxSources {
     pub advent: i64,
     pub milestone: i64,
     pub payment: i64,
+    /// Lucky wheel prizes.
+    pub wheel: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -521,7 +523,12 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
     .map(|(timestamp,)| timestamp)
     .collect();
     let tz = resolve_tz(&state.config.timezone);
-    let activity = rewards::activity_rewards(&consumed_at, &tz, onboarded_at);
+    let daily_granted: Vec<chrono::NaiveDate> = existing
+        .iter()
+        .filter(|(source, _)| source == "daily")
+        .filter_map(|(_, day)| day.parse().ok())
+        .collect();
+    let activity = rewards::activity_rewards(&consumed_at, &tz, onboarded_at, &daily_granted);
     let now = now_ts();
     for day in &activity.daily {
         missing.push(("daily", day.to_string(), now));
@@ -640,6 +647,7 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
             "advent" => sources.advent = count,
             "milestone" => sources.milestone = count,
             "payment" => sources.payment = count,
+            "wheel" => sources.wheel = count,
             _ => {}
         }
     }
@@ -651,7 +659,8 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
         + sources.streak
         + sources.advent
         + sources.milestone
-        + sources.payment;
+        + sources.payment
+        + sources.wheel;
 
     let (boxes_opened,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM lootbox_openings WHERE user_id = ?")
@@ -1128,7 +1137,7 @@ mod tests {
         );
         let locker = load_locker(&state, "alice").await.unwrap();
 
-        assert_eq!(locker.sources.daily, 5);
+        assert_eq!(locker.sources.daily, 1); // the 5th active day
         assert_eq!(locker.sources.streak, 1); // 5 lab days in a row
         assert_eq!(locker.sources.milestone, 1); // the 25th drink
         assert_eq!(locker.sources.stamp_card, 2); // 25 paid drinks in one month
@@ -1151,13 +1160,14 @@ mod tests {
         )
         .await
         .unwrap();
+        // One active day is not enough for an active-day crate (every 5th day).
         assert!(
-            response
+            !response
                 .crates_earned
                 .iter()
                 .any(|source| source == "daily")
         );
-        // The first coffee also unlocks an achievement, which is a crate too.
+        // The first coffee unlocks an achievement, which is a crate too.
         assert!(
             response
                 .crates_earned
@@ -1192,8 +1202,8 @@ mod tests {
         assert_eq!(locker.sources.achievement, 2);
         assert_eq!(locker.sources.shopping, 1);
         assert_eq!(locker.sources.stamp_card, 1);
-        assert_eq!(locker.sources.daily, 1); // all 12 coffees on one day
-        assert_eq!(locker.boxes_available, 5);
+        assert_eq!(locker.sources.daily, 0); // all 12 coffees on one active day
+        assert_eq!(locker.boxes_available, 4);
     }
 
     #[tokio::test]

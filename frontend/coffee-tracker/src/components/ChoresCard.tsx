@@ -95,7 +95,7 @@ export function ChoresCard() {
             : 'Honour system: the first member to do a chore each week wins a crate.'}
         </p>
       </div>
-      <ul className="grid gap-2 sm:grid-cols-2">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {(board?.chores ?? []).map((chore) => {
           const Icon = CHORE_ICONS[chore.chore] ?? WashingMachine
           const last = chore.recent[0]

@@ -757,6 +757,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/wheel/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["my_wheel"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wheel/spin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["spin_wheel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/wheel/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["wheel_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -900,6 +948,8 @@ export interface components {
              *     `milestone`, `achievement`), one entry per crate.
              */
             crates_earned: string[];
+            /** @description Whether a free drink won on the lucky wheel paid for this one. */
+            free_drink_voucher_used: boolean;
             id: string;
             machine_id: string;
             user_id: string;
@@ -1141,6 +1191,11 @@ export interface components {
             stamp_card: number;
             /** Format: int64 */
             streak: number;
+            /**
+             * Format: int64
+             * @description Lucky wheel prizes.
+             */
+            wheel: number;
         };
         Machine: {
             id: string;
@@ -1179,6 +1234,11 @@ export interface components {
             unpaid_amount_cents: number;
             /** Format: int64 */
             unpaid_drink_count: number;
+            /**
+             * Format: int64
+             * @description Lucky wheel spins included in `unpaid_amount_cents`.
+             */
+            unpaid_wheel_cents: number;
             user_id: string;
         };
         PaymentConfigResponse: {
@@ -1233,6 +1293,11 @@ export interface components {
             unpaid_amount_cents: number;
             /** Format: int64 */
             unpaid_drink_count: number;
+            /**
+             * Format: int64
+             * @description Lucky wheel spins included in `unpaid_amount_cents`.
+             */
+            unpaid_wheel_cents: number;
             user_id: string;
             user_type: string;
         };
@@ -1416,6 +1481,147 @@ export interface components {
         };
         VersionResponse: {
             backend_version: string;
+        };
+        WheelOdds: {
+            prize: components["schemas"]["WheelPrize"];
+            /**
+             * Format: double
+             * @description Probability of this prize per draw (0..1).
+             */
+            probability: number;
+            /** Format: int64 */
+            weight: number;
+        };
+        /** @enum {string} */
+        WheelPrize: "nothing" | "oh_no" | "crate_1" | "crate_2" | "crate_3" | "free_drink" | "respin";
+        WheelPrizeStat: {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: double
+             * @description Share the odds promise (0..1).
+             */
+            expected_share: number;
+            prize: components["schemas"]["WheelPrize"];
+            /**
+             * Format: double
+             * @description Observed share of all draws (0..1).
+             */
+            share: number;
+        };
+        WheelSpin: {
+            /** @description Picture of an "Oh noooo… anyway" draw (members-only artwork). */
+            artwork_path?: string | null;
+            /** Format: int64 */
+            cost_cents: number;
+            id: string;
+            prize: components["schemas"]["WheelPrize"];
+            /** @description For a free drink: whether it has been used on a logged drink yet. */
+            redeemed: boolean;
+            /** @description `welcome`, `voucher` or `paid`. */
+            source: string;
+            /** Format: int64 */
+            spun_at: number;
+        };
+        WheelSpinRequest: {
+            /**
+             * @description `false` uses a free spin; `true` buys one (booked onto the tab). A paid
+             *     spin is refused while free spins are still waiting.
+             */
+            paid: boolean;
+            /**
+             * @description Client-chosen UUID for this spin. Sending the same id again (a retry
+             *     after a lost response) returns the recorded spin instead of booking
+             *     and charging a new one.
+             */
+            spin_id?: string | null;
+        };
+        WheelSpinResponse: {
+            /** Format: int64 */
+            crates_granted: number;
+            spin: components["schemas"]["WheelSpin"];
+            status: components["schemas"]["WheelStatus"];
+            unlocked_achievements: components["schemas"]["AchievementEvent"][];
+        };
+        WheelStats: {
+            /** Format: int64 */
+            crates_granted: number;
+            /**
+             * Format: double
+             * @description Expected payout per paid spin with a 50 ct drink, in cents.
+             */
+            expected_payout_cents: number;
+            /** Format: int64 */
+            free_drinks_redeemed: number;
+            /**
+             * Format: int64
+             * @description Price of the drinks that were made free by the wheel.
+             */
+            free_drinks_value_cents: number;
+            /** Format: int64 */
+            free_drinks_won: number;
+            /**
+             * Format: int64
+             * @description Revenue minus the value of redeemed free drinks.
+             */
+            net_cents: number;
+            /** Format: int64 */
+            paid_spins: number;
+            /**
+             * Format: int64
+             * @description Distinct members who spun at least once.
+             */
+            players: number;
+            /** Format: int64 */
+            price_cents: number;
+            prizes: components["schemas"]["WheelPrizeStat"][];
+            /**
+             * Format: int64
+             * @description Sum of all paid spins (booked onto tabs).
+             */
+            revenue_cents: number;
+            /** Format: int64 */
+            total_spins: number;
+            /** Format: int64 */
+            voucher_spins: number;
+            /** @description Most recent weeks with draws, oldest first. */
+            weeks: components["schemas"]["WheelWeekStat"][];
+            /** Format: int64 */
+            welcome_spins: number;
+        };
+        WheelStatus: {
+            /**
+             * Format: int64
+             * @description Won free drinks that the next logged drink will use.
+             */
+            free_drinks_available: number;
+            /**
+             * Format: int64
+             * @description Free spins waiting (welcome spin plus unused re-spin vouchers).
+             */
+            free_spins_available: number;
+            odds: components["schemas"]["WheelOdds"][];
+            /** Format: int64 */
+            paid_spins_limit: number;
+            /** Format: int64 */
+            paid_spins_this_week: number;
+            /** Format: int64 */
+            price_cents: number;
+            recent_spins: components["schemas"]["WheelSpin"][];
+            /** Format: int64 */
+            total_spins: number;
+            /** @description Current local ISO week, e.g. `2026-W45`. */
+            week: string;
+            welcome_spin_available: boolean;
+        };
+        WheelWeekStat: {
+            /** Format: int64 */
+            paid_spins: number;
+            /** Format: int64 */
+            revenue_cents: number;
+            /** Format: int64 */
+            spins: number;
+            week: string;
         };
     };
     responses: never;
@@ -2486,6 +2692,111 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["VersionResponse"];
                 };
+            };
+        };
+    };
+    my_wheel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WheelStatus"];
+                };
+            };
+            /** @description Members only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    spin_wheel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WheelSpinRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay of an already recorded `spin_id` */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WheelSpinResponse"];
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WheelSpinResponse"];
+                };
+            };
+            /** @description `spin_id` is not a UUID */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Members only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No free spin left, free spins still waiting, or weekly limit reached */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    wheel_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WheelStats"];
+                };
+            };
+            /** @description Staff only */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

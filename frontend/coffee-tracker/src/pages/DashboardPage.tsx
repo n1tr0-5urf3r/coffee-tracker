@@ -184,7 +184,15 @@ export function DashboardPage() {
               }
               footer={
                 myPayment.data
-                  ? `${myPayment.data.unpaid_drink_count} unpaid drinks · ${myPayment.data.paid_drink_count} already paid`
+                  ? [
+                      `${myPayment.data.unpaid_drink_count} unpaid drinks`,
+                      myPayment.data.unpaid_wheel_cents > 0
+                        ? `${formatEuros(myPayment.data.unpaid_wheel_cents)} lucky wheel`
+                        : null,
+                      `${myPayment.data.paid_drink_count} already paid`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
                   : null
               }
             />

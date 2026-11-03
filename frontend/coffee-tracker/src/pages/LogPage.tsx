@@ -11,8 +11,9 @@ import {
   X,
 } from 'lucide-react'
 import { api, ApiError, type Beverage, type ConsumptionResponse } from '../api/client'
-import { invalidateCoffeeData, useCatalog, useLocker, useMe, useStampCard, useStats } from '../api/queries'
+import { invalidateCoffeeData, useCatalog, useLocker, useMe, useStampCard, useStats, useWheel } from '../api/queries'
 import { ChoresCard } from '../components/ChoresCard'
+import { WheelPill } from '../components/WheelPill'
 import { Card, Skeleton } from '../components/Card'
 import { PageHeader } from '../components/PageHeader'
 import { todayCountsByBeverage } from '../lib/stats'
@@ -75,6 +76,7 @@ export function LogPage() {
           consumed_at: Math.floor(queued.created_at / 1000),
           // Crates for queued drinks show up once the queue is replayed.
           crates_earned: [],
+          free_drink_voucher_used: false,
         } satisfies ConsumptionResponse
       }
       return api.createConsumption({
@@ -101,7 +103,14 @@ export function LogPage() {
         title: `${beverage.name} logged`,
         description: 'Tiny tap. Properly counted.',
       })
-      if (data.crates_earned.length > 0) {
+      if (data.free_drink_voucher_used === true) {
+        pushToast({
+          tone: 'success',
+          title: '🎡 This one is on the house',
+          description: 'Your free drink from the lucky wheel paid for it.',
+        })
+      }
+      if ((data.crates_earned?.length ?? 0) > 0) {
         pushToast({
           tone: 'info',
           title: `🎁 +${data.crates_earned.length} crate${data.crates_earned.length === 1 ? '' : 's'}`,
@@ -170,7 +179,10 @@ export function LogPage() {
   const otherBeverages = secondaryBeveragesFor(beverages.data?.beverages ?? [])
   const stampCard = useStampCard(currentMonthKey()).data
   const stampProgress = stampCard ? stampCardProgress(stampCard) : null
-  const nextIsFree = stampProgress?.nextIsFree ?? false
+  const { data: wheel } = useWheel(me?.user.user_type === 'member')
+  // A free drink won on the lucky wheel pays for the next priced drink.
+  const wheelFreeDrinks = wheel?.free_drinks_available ?? 0
+  const nextIsFree = (stampProgress?.nextIsFree ?? false) || wheelFreeDrinks > 0
 
   return (
     <div>
@@ -181,7 +193,14 @@ export function LogPage() {
           <div className="min-w-0 truncate rounded-full bg-white px-4 py-2 text-sm font-black text-berry-700 shadow-soft dark:bg-berry-900 dark:text-rose-100">
             Machine: {machineName}
           </div>
+          {wheelFreeDrinks > 0 ? (
+            <div className="flex items-center gap-2 rounded-full bg-mint px-4 py-2 text-sm font-black text-berry-950 shadow-soft">
+              <span aria-hidden="true">🎡</span>
+              {wheelFreeDrinks > 1 ? `${wheelFreeDrinks} free drinks from the wheel` : 'Next drink is on the wheel'}
+            </div>
+          ) : null}
           {stampProgress ? <StampProgressPill progress={stampProgress} /> : null}
+          <WheelPill enabled={me?.user.user_type === 'member'} />
         </div>
       </PageHeader>
 

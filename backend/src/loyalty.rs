@@ -241,6 +241,7 @@ pub async fn card_progress_by_month(
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
          WHERE c.user_id = ? AND b.price_cents > 0
+           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)
          ORDER BY c.consumed_at ASC",
     )
     .bind(user_id)
@@ -279,6 +280,7 @@ async fn paid_drinks_between(
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
          WHERE c.user_id = ? AND b.price_cents > 0 AND c.consumed_at >= ? AND c.consumed_at < ?
+           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)
          ORDER BY c.consumed_at ASC",
     )
     .bind(user_id)
@@ -303,6 +305,7 @@ pub async fn paid_drinks_since_month_of(
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
          WHERE c.user_id = ? AND b.price_cents > 0 AND c.consumed_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)
          ORDER BY c.consumed_at ASC",
     )
     .bind(user_id)

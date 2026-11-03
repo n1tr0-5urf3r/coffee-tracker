@@ -12,7 +12,9 @@ import {
   type PaymentReminderRequest,
   type UpdateSettingsRequest,
   type UpdateStockRequest,
+  type WheelSpinResponse,
 } from './client'
+import { useSpinInFlight } from '../lib/spinGate'
 
 export const queryKeys = {
   me: ['me'] as const,
@@ -32,6 +34,8 @@ export const queryKeys = {
   achievements: ['achievements'] as const,
   locker: ['locker'] as const,
   chores: ['chores'] as const,
+  wheel: ['wheel'] as const,
+  wheelStats: ['wheel', 'stats'] as const,
   stampCard: (month: string) => ['stempelkarte', month] as const,
   leaderboard: ['leaderboard'] as const,
   coffeeTwins: ['coffeeTwins'] as const,
@@ -284,14 +288,18 @@ export function invalidateCoffeeData(queryClient: ReturnType<typeof useQueryClie
     queryClient.invalidateQueries({ queryKey: ['payments'] }),
     queryClient.invalidateQueries({ queryKey: queryKeys.expenses }),
     queryClient.invalidateQueries({ queryKey: queryKeys.stock }),
+    // A logged drink may use a free drink won on the wheel.
+    queryClient.invalidateQueries({ queryKey: queryKeys.wheel }),
   ])
 }
 
 export function useLocker(enabled = true) {
+  // Hold still while a wheel spin is in the air (it may have granted crates).
+  const spinInFlight = useSpinInFlight()
   return useQuery({
     queryKey: queryKeys.locker,
     queryFn: api.locker,
-    enabled,
+    enabled: enabled && !spinInFlight,
     staleTime: 60_000,
   })
 }
@@ -332,6 +340,48 @@ export function useEquipMutation() {
     mutationFn: (body: EquipRequest) => api.equipCosmetic(body),
     onSuccess: (data) => update(data),
   })
+}
+
+/** Lucky wheel status (members only). */
+export function useWheel(enabled = true) {
+  // The draw is stored before the wheel lands; don't reveal it through a refetch.
+  const spinInFlight = useSpinInFlight()
+  return useQuery({
+    queryKey: queryKeys.wheel,
+    queryFn: api.wheel,
+    enabled: enabled && !spinInFlight,
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Spins the lucky wheel. Like lootbox opening, the cache is left alone until
+ * the wheel has landed; then the caller applies the result with
+ * `useWheelSpinApply` so nothing spoils the prize.
+ */
+export function useSpinWheelMutation() {
+  return useMutation({
+    mutationFn: ({ paid, spinId }: { paid: boolean; spinId: string }): Promise<WheelSpinResponse> =>
+      api.spinWheel(paid, spinId),
+  })
+}
+
+export function useWheelSpinApply() {
+  const queryClient = useQueryClient()
+  return (data: WheelSpinResponse) => {
+    queryClient.setQueryData(queryKeys.wheel, data.status)
+    void queryClient.invalidateQueries({ queryKey: queryKeys.wheelStats })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.locker })
+    void queryClient.invalidateQueries({ queryKey: ['payments'] })
+    void queryClient.invalidateQueries({ queryKey: queryKeys.globalStats })
+    if (data.unlocked_achievements.length > 0) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.achievements })
+    }
+  }
+}
+
+export function useWheelStats(enabled = true) {
+  return useQuery({ queryKey: queryKeys.wheelStats, queryFn: api.wheelStats, enabled })
 }
 
 export function useChores() {

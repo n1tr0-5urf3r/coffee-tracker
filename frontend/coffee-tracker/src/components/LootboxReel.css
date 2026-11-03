@@ -1,0 +1,43 @@
+/* Extra lootbox-reel effects (see LootboxReel.tsx). Everything is off under
+   prefers-reduced-motion. */
+
+/* Nervous tremble while the reel crawls over the last few tiles. */
+.reel-tremble {
+  animation: reel-tremble 0.11s linear infinite;
+}
+@keyframes reel-tremble {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(-1px, 0.5px); }
+  50% { transform: translate(1px, -0.5px); }
+  75% { transform: translate(-0.5px, -1px); }
+  100% { transform: translate(0.5px, 1px); }
+}
+
+/* The marker flicks as each tile passes it during the crawl. Tailwind's
+   translate utilities use the `translate` property, so `transform` is free. */
+.reel-marker-kick {
+  animation: reel-marker-kick 0.2s ease-out;
+}
+@keyframes reel-marker-kick {
+  0% { transform: scaleX(2.4) scaleY(1.06); }
+  100% { transform: scaleX(1) scaleY(1); }
+}
+
+/* One short page shake for legendary drops. */
+.reel-screen-shake {
+  animation: reel-screen-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+@keyframes reel-screen-shake {
+  10%, 90% { transform: translate(-1px, 0); }
+  20%, 80% { transform: translate(3px, -1px); }
+  30%, 50%, 70% { transform: translate(-4px, 1px); }
+  40%, 60% { transform: translate(4px, -1px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-tremble,
+  .reel-marker-kick,
+  .reel-screen-shake {
+    animation: none;
+  }
+}

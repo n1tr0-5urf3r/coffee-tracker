@@ -384,7 +384,8 @@ pub(crate) async fn global_summary(
          WHERE c.consumed_at >= COALESCE(
            (SELECT MAX(p.period_end_ts) FROM payments p WHERE p.user_id = c.user_id),
            0
-         )",
+         )
+           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)",
     )
     .fetch_one(&state.db)
     .await?;
@@ -421,7 +422,18 @@ pub(crate) async fn global_summary(
         coffee_count: row.coffee_count,
     });
 
-    let unpaid_total_cents = unpaid_total_cents.unwrap_or(0);
+    // Lucky wheel spins on open tabs count like drinks.
+    let (unpaid_wheel_cents,): (i64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(w.cost_cents), 0)
+         FROM wheel_spins w
+         WHERE w.spun_at >= COALESCE(
+           (SELECT MAX(p.period_end_ts) FROM payments p WHERE p.user_id = w.user_id),
+           0
+         )",
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let unpaid_total_cents = unpaid_total_cents.unwrap_or(0) + unpaid_wheel_cents;
     let paid_total_cents = paid_total_cents.unwrap_or(0);
     let expense_balance_cents = chair_expense_balance_cents(&state).await?;
     let chair_balance_cents = unpaid_total_cents + expense_balance_cents;

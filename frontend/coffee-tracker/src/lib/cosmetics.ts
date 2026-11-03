@@ -156,14 +156,15 @@ export const CRATE_SOURCE_LABELS: Record<string, string> = {
   shopping: 'Shopping trip',
   stamp_card: 'Full Stempelkarte',
   cleaning: 'Weekly chore',
-  daily: 'Daily crate',
+  daily: 'Every 5th drinking day',
   streak: 'Streak bonus',
   advent: 'Advent calendar door',
   milestone: 'Drink milestone',
   payment: 'Paid tab',
+  wheel: 'Lucky wheel',
 }
 
-/** "Daily crate + 2× Achievement" for a list of crate sources. */
+/** "Drink milestone + 2× Achievement" for a list of crate sources. */
 export function describeCrates(sources: string[]) {
   const counts = new Map<string, number>()
   for (const source of sources) counts.set(source, (counts.get(source) ?? 0) + 1)

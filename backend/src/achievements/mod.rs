@@ -12,6 +12,7 @@ use crate::{
     error::{ApiError, ApiResult},
     loyalty,
     stats::{caffeine_decay, resolve_tz},
+    wheel,
 };
 
 pub fn router() -> Router<AppState> {
@@ -64,9 +65,12 @@ pub(crate) async fn my_achievements(
          LEFT JOIN achievement_unlocks u
            ON u.achievement_id = d.id AND u.user_id = ?
          WHERE d.active = 1
+           -- The lucky wheel is members only; guests never see its achievements.
+           AND (? OR d.criteria_kind NOT LIKE 'wheel%' OR u.unlocked_at IS NOT NULL)
          ORDER BY d.created_at ASC",
     )
     .bind(&user.id)
+    .bind(user.user_type == "member")
     .fetch_all(&state.db)
     .await?;
 
@@ -211,7 +215,7 @@ const GLOBAL_CRITERIA: [&str; 9] = [
 ];
 
 fn is_global_criteria(criteria_kind: &str) -> bool {
-    GLOBAL_CRITERIA.contains(&criteria_kind)
+    GLOBAL_CRITERIA.contains(&criteria_kind) || wheel::is_wheel_criteria(criteria_kind)
 }
 
 async fn count(state: &AppState, sql: &'static str, user_id: &str) -> ApiResult<i64> {
@@ -228,6 +232,10 @@ async fn global_criteria_met(
     definition: &AchievementDefinition,
 ) -> ApiResult<bool> {
     let threshold = definition.threshold.unwrap_or(1);
+    if let Some(value) = wheel::achievement_value(state, user_id, &definition.criteria_kind).await?
+    {
+        return Ok(value >= threshold);
+    }
     let value =
         match definition.criteria_kind.as_str() {
             "stamp_cards_completed" => loyalty::card_progress_by_month(state, user_id)
@@ -660,13 +668,16 @@ async fn unpaid_amount_cents(state: &AppState, user_id: &str) -> ApiResult<i64> 
         "SELECT SUM(b.price_cents)
          FROM consumptions c
          JOIN beverages b ON b.id = c.beverage_id
-         WHERE c.user_id = ? AND c.consumed_at >= ?",
+         WHERE c.user_id = ? AND c.consumed_at >= ?
+           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)",
     )
     .bind(user_id)
     .bind(max_period_end.unwrap_or(0))
     .fetch_one(&state.db)
     .await?;
-    Ok(amount.unwrap_or(0))
+    let wheel =
+        wheel::unpaid_wheel_cents(state, user_id, max_period_end.unwrap_or(0), i64::MAX).await?;
+    Ok(amount.unwrap_or(0) + wheel)
 }
 
 async fn payment_count(state: &AppState, user_id: &str) -> ApiResult<i64> {
