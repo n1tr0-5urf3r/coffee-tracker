@@ -247,7 +247,16 @@ export function DashboardPage() {
                 value={String(globalStats.total_drinks)}
                 caption={`${globalStats.total_coffees} coffees`}
               />
-              <div className="rounded-3xl bg-berry-100 p-4 sm:col-span-3 dark:bg-white/10">
+              <InfoPill
+                label="Money spent"
+                value={formatEuros(globalStats.paid_total_cents + globalStats.unpaid_total_cents)}
+                caption={
+                  globalStats.wheel_spent_cents > 0
+                    ? `${formatEuros(globalStats.wheel_spent_cents)} of it on the lucky wheel`
+                    : 'Paid and open tabs'
+                }
+              />
+              <div className="rounded-3xl bg-berry-100 p-4 sm:col-span-2 dark:bg-white/10">
                 <p className="text-xs font-black uppercase tracking-[0.16em] text-primary dark:text-blush">
                   Top consumer
                 </p>

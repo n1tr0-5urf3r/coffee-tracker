@@ -1,4 +1,4 @@
-const CACHE_NAME = 'coffee-tracker-shell-v2'
+const CACHE_NAME = 'coffee-tracker-shell-v3'
 const QUEUE_DB = 'coffee-tracker-queue'
 const QUEUE_STORE = 'logs'
 
@@ -10,6 +10,10 @@ self.addEventListener('install', (event) => {
         '/config.js',
         '/favicon.svg',
         '/manifest.webmanifest',
+        '/apple-touch-icon.png',
+        '/icon-192.png',
+        '/icon-512.png',
+        '/icon-maskable-512.png',
       ]),
     ),
   )
@@ -17,7 +21,18 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith('coffee-tracker-shell-') && key !== CACHE_NAME)
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  )
 })
 
 self.addEventListener('fetch', (event) => {

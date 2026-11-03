@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Coffee, Coins, FerrisWheel, Gift, Info, Ticket, Volume2, VolumeX } from 'lucide-react'
+import { Coffee, Coins, FerrisWheel, Gift, Ticket, Volume2, VolumeX } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -355,37 +355,6 @@ function Wheel({ status }: { status: WheelStatus }) {
               </p>
             </Card>
           ) : null}
-
-          <Card>
-            <p className="mb-3 font-display text-xl font-black">Odds</p>
-            <ul className="space-y-2">
-              {status.odds.map((entry) => {
-                const meta = PRIZE_META[entry.prize]
-                return (
-                  <li key={entry.prize} className="flex items-center justify-between gap-3 text-sm font-bold">
-                    <span className="flex items-center gap-2">
-                      <span
-                        className="grid size-7 place-items-center rounded-full text-sm ring-2 ring-berry-950/10"
-                        style={{ background: meta.fill }}
-                        aria-hidden="true"
-                      >
-                        {meta.glyph}
-                      </span>
-                      {meta.label}
-                    </span>
-                    <span className="tabular-nums text-berry-700 dark:text-rose-100">
-                      {Math.round(entry.probability * 100)} %
-                    </span>
-                  </li>
-                )
-              })}
-            </ul>
-            <p className="mt-4 flex gap-2 text-xs font-bold text-berry-700 dark:text-rose-100">
-              <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-              The house always wins: most of every spin ends up in the Kaffeekasse. At most{' '}
-              {status.paid_spins_limit} paid spins per week, booked onto your tab like a drink.
-            </p>
-          </Card>
 
           <Card>
             <p className="mb-3 font-display text-xl font-black">Your last spins</p>

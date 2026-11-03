@@ -113,6 +113,8 @@ pub struct GlobalStatsResponse {
     pub paid_total_cents: i64,
     pub expense_balance_cents: i64,
     pub chair_balance_cents: i64,
+    /// Everything ever booked for lucky wheel spins (paid or still open).
+    pub wheel_spent_cents: i64,
     pub kn_drinks: i64,
     pub kn_coffees: i64,
     pub guest_drinks: i64,
@@ -434,6 +436,10 @@ pub(crate) async fn global_summary(
     .fetch_one(&state.db)
     .await?;
     let unpaid_total_cents = unpaid_total_cents.unwrap_or(0) + unpaid_wheel_cents;
+    let (wheel_spent_cents,): (i64,) =
+        sqlx::query_as("SELECT COALESCE(SUM(cost_cents), 0) FROM wheel_spins")
+            .fetch_one(&state.db)
+            .await?;
     let paid_total_cents = paid_total_cents.unwrap_or(0);
     let expense_balance_cents = chair_expense_balance_cents(&state).await?;
     let chair_balance_cents = unpaid_total_cents + expense_balance_cents;
@@ -448,6 +454,7 @@ pub(crate) async fn global_summary(
         paid_total_cents,
         expense_balance_cents,
         chair_balance_cents,
+        wheel_spent_cents,
         kn_drinks,
         kn_coffees,
         guest_drinks,

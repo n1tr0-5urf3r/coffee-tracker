@@ -1100,6 +1100,11 @@ export interface components {
             total_drinks: number;
             /** Format: int64 */
             unpaid_total_cents: number;
+            /**
+             * Format: int64
+             * @description Everything ever booked for lucky wheel spins (paid or still open).
+             */
+            wheel_spent_cents: number;
         };
         GlobalTopDrinker: {
             /** Format: int64 */

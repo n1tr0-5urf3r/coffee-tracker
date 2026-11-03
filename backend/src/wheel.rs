@@ -1397,6 +1397,7 @@ mod flow_tests {
             .await
             .unwrap();
         assert_eq!(summary.unpaid_total_cents, SPIN_PRICE_CENTS);
+        assert_eq!(summary.wheel_spent_cents, SPIN_PRICE_CENTS);
     }
 
     #[tokio::test]
