@@ -109,6 +109,7 @@ function AchievementSection({
                 <p className="mt-2 text-sm font-bold text-berry-700 dark:text-rose-100">
                   {achievement.description ?? achievement.hint}
                 </p>
+                {achievement.progress ? <ProgressBar {...achievement.progress} /> : null}
                 <p className="mt-3 inline-flex items-center gap-1 text-xs font-black text-primary dark:text-blush">
                   <Gift className="size-3" aria-hidden="true" /> Reward: 1 lootbox
                 </p>
@@ -124,5 +125,33 @@ function AchievementSection({
         ))}
       </div>
     </section>
+  )
+}
+
+/** How far a locked achievement is, e.g. 3 / 10 espressos. */
+function ProgressBar({ current, target }: { current: number; target: number }) {
+  const percent = Math.round((Math.min(current, target) / target) * 100)
+  return (
+    <div className="mt-3">
+      <div className="mb-1 flex justify-between text-xs font-black text-berry-700 dark:text-rose-100">
+        <span>Progress</span>
+        <span className="tabular-nums">
+          {current} / {target}
+        </span>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={target}
+        aria-valuenow={current}
+        aria-label={`${current} of ${target}`}
+        className="h-2.5 overflow-hidden rounded-full bg-primary/15 dark:bg-white/15"
+      >
+        <div
+          className="h-full rounded-full bg-primary transition-[width] duration-500 dark:bg-blush"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
   )
 }

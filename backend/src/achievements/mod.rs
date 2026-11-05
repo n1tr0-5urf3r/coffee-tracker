@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use axum::{Json, Router, extract::State, routing::get};
 use chrono::{Datelike, Duration, NaiveDate, TimeZone, Timelike, Utc, Weekday};
@@ -34,6 +34,17 @@ pub struct AchievementItem {
     pub hint: Option<String>,
     pub unlocked: bool,
     pub unlocked_at: Option<i64>,
+    /// How far the user is toward a locked achievement that counts something
+    /// (drinks, streak days, crates, ...). Absent once unlocked, for one-off
+    /// achievements, and when the target is a single step.
+    pub progress: Option<AchievementProgress>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AchievementProgress {
+    /// Current count, capped at `target`.
+    pub current: i64,
+    pub target: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -60,7 +71,7 @@ pub(crate) async fn my_achievements(
     user: CurrentUser,
 ) -> ApiResult<Json<AchievementsResponse>> {
     let rows = sqlx::query_as::<_, AchievementWithUnlock>(
-        "SELECT d.id, d.name, d.description, d.hint, u.unlocked_at
+        "SELECT d.id, d.name, d.description, d.hint, d.criteria_kind, d.threshold, u.unlocked_at
          FROM achievement_definitions d
          LEFT JOIN achievement_unlocks u
            ON u.achievement_id = d.id AND u.user_id = ?
@@ -74,19 +85,44 @@ pub(crate) async fn my_achievements(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(AchievementsResponse {
-        achievements: rows
-            .into_iter()
-            .map(|row| AchievementItem {
-                id: row.id,
-                name: row.name,
-                description: row.unlocked_at.map(|_| row.description),
-                hint: row.unlocked_at.is_none().then_some(row.hint),
-                unlocked: row.unlocked_at.is_some(),
-                unlocked_at: row.unlocked_at,
+    // Several achievements share a criterion (e.g. lifetime_cups 50/100/...),
+    // so each counter is computed once per request.
+    let mut counters: HashMap<String, Option<i64>> = HashMap::new();
+    let mut achievements = Vec::with_capacity(rows.len());
+    for row in rows {
+        let target = row.threshold.unwrap_or(1);
+        let tracked = row.unlocked_at.is_none()
+            && target > 1
+            // Payment achievements never unlock for guests.
+            && (user.user_type == "member" || !PAYMENT_CRITERIA.contains(&row.criteria_kind.as_str()));
+        let progress = if tracked {
+            let current = match counters.get(&row.criteria_kind) {
+                Some(value) => *value,
+                None => {
+                    let value = counter_value(&state, &user.id, &row.criteria_kind).await?;
+                    counters.insert(row.criteria_kind.clone(), value);
+                    value
+                }
+            };
+            current.map(|current| AchievementProgress {
+                current: current.clamp(0, target),
+                target,
             })
-            .collect(),
-    }))
+        } else {
+            None
+        };
+        achievements.push(AchievementItem {
+            id: row.id,
+            name: row.name,
+            description: row.unlocked_at.map(|_| row.description),
+            hint: row.unlocked_at.is_none().then_some(row.hint),
+            unlocked: row.unlocked_at.is_some(),
+            unlocked_at: row.unlocked_at,
+            progress,
+        });
+    }
+
+    Ok(Json(AchievementsResponse { achievements }))
 }
 
 pub async fn evaluate_after_consumption(
@@ -282,12 +318,68 @@ async fn global_criteria_met(
     definition: &AchievementDefinition,
 ) -> ApiResult<bool> {
     let threshold = definition.threshold.unwrap_or(1);
-    if let Some(value) = wheel::achievement_value(state, user_id, &definition.criteria_kind).await?
-    {
-        return Ok(value >= threshold);
+    Ok(counter_value(state, user_id, &definition.criteria_kind)
+        .await?
+        .is_some_and(|value| value >= threshold))
+}
+
+/// The running count of a criterion that unlocks once the count reaches the
+/// threshold, or `None` for criteria without one (one-off moments, the
+/// caffeine level, the open tab, a single payment, a gap between drinks).
+/// Used both to unlock achievements and to show progress toward them.
+async fn counter_value(
+    state: &AppState,
+    user_id: &str,
+    criteria_kind: &str,
+) -> ApiResult<Option<i64>> {
+    if let Some(value) = wheel::achievement_value(state, user_id, criteria_kind).await? {
+        return Ok(Some(value));
+    }
+    if let Some(beverage_id) = criteria_kind.strip_prefix("beverage_count:") {
+        let (value,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM consumptions WHERE user_id = ? AND beverage_id = ?",
+        )
+        .bind(user_id)
+        .bind(beverage_id)
+        .fetch_one(&state.db)
+        .await?;
+        return Ok(Some(value));
+    }
+    if let Some(hours) = hour_window(criteria_kind) {
+        return Ok(Some(
+            count_consumptions_in_hour_window(state, user_id, &hours).await?,
+        ));
     }
     let value =
-        match definition.criteria_kind.as_str() {
+        match criteria_kind {
+            "lifetime_cups" => count(
+                state,
+                "SELECT COUNT(*) FROM consumptions WHERE user_id = ? AND beverage_id = 'coffee'",
+                user_id,
+            )
+            .await?,
+            "beverage_variety" => {
+                count(
+                    state,
+                    "SELECT COUNT(DISTINCT beverage_id) FROM consumptions WHERE user_id = ?",
+                    user_id,
+                )
+                .await?
+            }
+            "regular_menu_variety" => {
+                count(
+                    state,
+                    "SELECT COUNT(DISTINCT beverage_id)
+                 FROM consumptions
+                 WHERE user_id = ? AND beverage_id IN ('coffee', 'espresso_pads', 'eis', 'tea')",
+                    user_id,
+                )
+                .await?
+            }
+            "streak_days" => longest_streak(state, user_id).await?,
+            "single_day_count" => max_single_day_count(state, user_id).await?,
+            "weekend_count" => weekend_consumption_count(state, user_id).await?,
+            "payment_count" => payment_count(state, user_id).await?,
             "stamp_cards_completed" => loyalty::card_progress_by_month(state, user_id)
                 .await?
                 .iter()
@@ -313,7 +405,7 @@ async fn global_criteria_met(
                     state,
                     // Days, not entries: logging twice a day doesn't count double.
                     "SELECT COUNT(DISTINCT date(cleaned_at, 'unixepoch'))
-                     FROM machine_cleanings WHERE user_id = ? AND chore = 'clean'",
+                 FROM machine_cleanings WHERE user_id = ? AND chore = 'clean'",
                     user_id,
                 )
                 .await?
@@ -330,7 +422,7 @@ async fn global_criteria_met(
                 count(
                     state,
                     "SELECT COUNT(DISTINCT chore || date(cleaned_at, 'unixepoch'))
-                     FROM machine_cleanings WHERE user_id = ?",
+                 FROM machine_cleanings WHERE user_id = ?",
                     user_id,
                 )
                 .await?
@@ -357,9 +449,9 @@ async fn global_criteria_met(
                 )
                 .await?
             }
-            _ => return Ok(false),
+            _ => return Ok(None),
         };
-    Ok(value >= threshold)
+    Ok(Some(value))
 }
 
 /// `calendar_day:MM-DD` matches consumptions on that local calendar day.
@@ -391,77 +483,42 @@ async fn criteria_met(
     now: i64,
 ) -> ApiResult<bool> {
     let threshold = definition.threshold.unwrap_or(1);
-    if let Some(beverage_id) = definition.criteria_kind.strip_prefix("beverage_count:") {
-        let (count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM consumptions WHERE user_id = ? AND beverage_id = ?",
-        )
-        .bind(user_id)
-        .bind(beverage_id)
-        .fetch_one(&state.db)
-        .await?;
-        return Ok(count >= threshold);
-    }
-    if let Some((month, day)) = calendar_day(&definition.criteria_kind) {
+    let kind = definition.criteria_kind.as_str();
+    if let Some((month, day)) = calendar_day(kind) {
         let Some(dt) = consumption_local_datetime(state, user_id, consumption_id).await? else {
             return Ok(false);
         };
         return Ok(dt.month() == month && dt.day() == day);
     }
-    if is_global_criteria(&definition.criteria_kind) {
-        return global_criteria_met(state, user_id, definition).await;
-    }
-    if let Some(hours) = hour_window(&definition.criteria_kind) {
-        return Ok(
-            consumption_in_hour_window(state, user_id, consumption_id, &hours).await?
-                && count_consumptions_in_hour_window(state, user_id, &hours).await? >= threshold,
-        );
-    }
-
-    match definition.criteria_kind.as_str() {
-        "lifetime_cups" => {
-            let (count,): (i64,) = sqlx::query_as(
-                "SELECT COUNT(*) FROM consumptions WHERE user_id = ? AND beverage_id = 'coffee'",
-            )
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await?;
-            Ok(count >= threshold)
+    match kind {
+        "early_bird" => {
+            return consumption_in_hour_window(state, user_id, consumption_id, &(0..8)).await;
         }
-        "early_bird" => consumption_in_hour_window(state, user_id, consumption_id, &(0..8)).await,
-        "night_owl" => consumption_in_hour_window(state, user_id, consumption_id, &(22..24)).await,
-        "streak_days" => Ok(longest_streak(state, user_id).await? >= threshold),
-        "beverage_variety" => {
-            let (count,): (i64,) = sqlx::query_as(
-                "SELECT COUNT(DISTINCT beverage_id) FROM consumptions WHERE user_id = ?",
-            )
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await?;
-            Ok(count >= threshold)
+        "night_owl" => {
+            return consumption_in_hour_window(state, user_id, consumption_id, &(22..24)).await;
         }
-        "regular_menu_variety" => {
-            let (count,): (i64,) = sqlx::query_as(
-                "SELECT COUNT(DISTINCT beverage_id)
-                 FROM consumptions
-                 WHERE user_id = ? AND beverage_id IN ('coffee', 'espresso_pads', 'eis', 'tea')",
-            )
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await?;
-            Ok(count >= threshold)
+        "caffeine_threshold" => {
+            return Ok(caffeine_level(state, user_id, now).await? >= threshold as f64);
         }
-        "single_day_count" => Ok(max_single_day_count(state, user_id).await? >= threshold),
-        "caffeine_threshold" => Ok(caffeine_level(state, user_id, now).await? >= threshold as f64),
-        "unpaid_amount" => Ok(unpaid_amount_cents(state, user_id).await? >= threshold),
-        "weekend_count" => Ok(
-            consumption_is_weekend(state, user_id, consumption_id).await?
-                && weekend_consumption_count(state, user_id).await? >= threshold,
-        ),
+        "unpaid_amount" => return Ok(unpaid_amount_cents(state, user_id).await? >= threshold),
         "return_after_gap_days" => {
-            Ok(return_after_gap_days(state, user_id, consumption_id).await? >= threshold)
+            return Ok(return_after_gap_days(state, user_id, consumption_id).await? >= threshold);
         }
-        _ => Ok(false),
+        _ if PAYMENT_CRITERIA.contains(&kind) => return Ok(false),
+        _ => {}
     }
+    // Window and weekend counts only unlock on a drink that is one of them.
+    if let Some(hours) = hour_window(kind)
+        && !consumption_in_hour_window(state, user_id, consumption_id, &hours).await?
+    {
+        return Ok(false);
+    }
+    if kind == "weekend_count" && !consumption_is_weekend(state, user_id, consumption_id).await? {
+        return Ok(false);
+    }
+    Ok(counter_value(state, user_id, kind)
+        .await?
+        .is_some_and(|value| value >= threshold))
 }
 
 async fn payment_criteria_met(
@@ -738,6 +795,8 @@ struct AchievementWithUnlock {
     name: String,
     description: String,
     hint: String,
+    criteria_kind: String,
+    threshold: Option<i64>,
     unlocked_at: Option<i64>,
 }
 
@@ -847,6 +906,74 @@ mod tests {
         .execute(&state.db)
         .await
         .unwrap();
+    }
+
+    async fn progress_of(state: &AppState, user: CurrentUser, id: &str) -> Option<(i64, i64)> {
+        let Json(response) = my_achievements(State(state.clone()), user).await.unwrap();
+        let item = response
+            .achievements
+            .into_iter()
+            .find(|item| item.id == id)
+            .unwrap();
+        item.progress
+            .map(|progress| (progress.current, progress.target))
+    }
+
+    #[tokio::test]
+    async fn locked_counting_achievements_report_progress() {
+        let state = state().await;
+        insert_definition(&state, "espresso_ten", "beverage_count:espresso_pads", 10).await;
+        insert_definition(&state, "espresso_one", "beverage_count:espresso_pads", 1).await;
+        insert_definition(&state, "two_cards", "stamp_cards_completed", 2).await;
+        insert_definition(&state, "gap", "return_after_gap_days", 14).await;
+        insert_definition(&state, "tabs", "payment_count", 3).await;
+        for i in 0..3 {
+            sqlx::query(
+                "INSERT INTO consumptions
+                 (id, user_id, machine_id, beverage_id, consumed_at, created_at)
+                 VALUES (?, 'user', 'main', 'espresso_pads', ?, ?)",
+            )
+            .bind(format!("espresso-{i}"))
+            .bind(10 + i)
+            .bind(10 + i)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+
+        assert_eq!(
+            progress_of(&state, user(), "espresso_ten").await,
+            Some((3, 10))
+        );
+        assert_eq!(progress_of(&state, user(), "two_cards").await, Some((0, 2)));
+        assert_eq!(progress_of(&state, user(), "tabs").await, Some((0, 3)));
+        // Single-step and one-off achievements have no bar.
+        assert_eq!(progress_of(&state, user(), "espresso_one").await, None);
+        assert_eq!(progress_of(&state, user(), "gap").await, None);
+
+        // Unlocked achievements drop their bar.
+        evaluate_after_consumption(&state, &user(), "espresso-2", 12)
+            .await
+            .unwrap();
+        for i in 3..10 {
+            insert_consumption(&state, &format!("cup-{i}"), 20 + i).await;
+            sqlx::query("UPDATE consumptions SET beverage_id = 'espresso_pads' WHERE id = ?")
+                .bind(format!("cup-{i}"))
+                .execute(&state.db)
+                .await
+                .unwrap();
+        }
+        evaluate_after_consumption(&state, &user(), "cup-9", 29)
+            .await
+            .unwrap();
+        assert_eq!(progress_of(&state, user(), "espresso_ten").await, None);
+
+        // Guests never earn payment achievements, so they get no bar for them.
+        let guest = CurrentUser {
+            user_type: "guest".into(),
+            ..user()
+        };
+        assert_eq!(progress_of(&state, guest, "tabs").await, None);
     }
 
     #[tokio::test]

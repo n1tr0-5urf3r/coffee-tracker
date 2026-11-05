@@ -106,6 +106,7 @@ pub fn openapi_json() -> String {
             loyalty::StampCard,
             loyalty::StampCardResponse,
             achievements::AchievementItem,
+            achievements::AchievementProgress,
             achievements::AchievementsResponse,
             achievements::AchievementEvent,
             cosmetics::catalog::Slot,

@@ -825,6 +825,7 @@ export interface components {
             hint?: string | null;
             id: string;
             name: string;
+            progress?: null | components["schemas"]["AchievementProgress"];
             unlocked: boolean;
             /** Format: int64 */
             unlocked_at?: number | null;
@@ -840,6 +841,15 @@ export interface components {
             unlocked_count: number;
             unlocks: components["schemas"]["AchievementUnlockSummary"][];
             user_id: string;
+        };
+        AchievementProgress: {
+            /**
+             * Format: int64
+             * @description Current count, capped at `target`.
+             */
+            current: number;
+            /** Format: int64 */
+            target: number;
         };
         AchievementUnlockSummary: {
             achievement_id: string;
