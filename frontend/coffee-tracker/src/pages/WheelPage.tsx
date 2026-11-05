@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Coffee, Coins, FerrisWheel, Gift, Ticket, Volume2, VolumeX } from 'lucide-react'
+import { Coffee, Coins, FerrisWheel, Gift, Ticket, TriangleAlert, Volume2, VolumeX } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -22,7 +22,7 @@ import {
 import { formatEuros } from '../lib/money'
 import { setSpinInFlight } from '../lib/spinGate'
 import { useToast } from '../lib/toast'
-import { PRIZE_META, buildSlices } from '../lib/wheel'
+import { PRIZE_META, buildSlices, showGamblingWarning } from '../lib/wheel'
 
 const BIG_WINS: WheelPrize[] = ['free_drink', 'crate_3']
 
@@ -202,6 +202,10 @@ function Wheel({ status }: { status: WheelStatus }) {
           <span className={chip}>{formatEuros(status.price_cents)} per spin</span>
         </div>
       </PageHeader>
+
+      {showGamblingWarning(status.paid_spins_this_week) ? (
+        <GamblingWarning paidSpins={status.paid_spins_this_week} priceCents={status.price_cents} />
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Card className="min-w-0 overflow-hidden">
@@ -384,6 +388,34 @@ function Wheel({ status }: { status: WheelStatus }) {
             )}
           </Card>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/** Shown once a player has bought several spins in one week. */
+function GamblingWarning({ paidSpins, priceCents }: { paidSpins: number; priceCents: number }) {
+  return (
+    <div
+      role="note"
+      className="mb-4 flex items-start gap-3 rounded-3xl border-2 border-amber-400/70 bg-amber-50 p-4 text-amber-950 dark:border-amber-300/40 dark:bg-amber-950/40 dark:text-amber-100"
+    >
+      <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 text-sm font-bold">
+        <p className="font-display text-base font-black">Glücksspiel kann süchtig machen.</p>
+        <p className="mt-1">
+          You bought {paidSpins} spins this week ({formatEuros(paidSpins * priceCents)} on your tab). It’s
+          just a game – take a break if it stops being fun. Help and advice:{' '}
+          <a
+            href="https://www.check-dein-spiel.de"
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-2"
+          >
+            check-dein-spiel.de
+          </a>
+          .
+        </p>
       </div>
     </div>
   )

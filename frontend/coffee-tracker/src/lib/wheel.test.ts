@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { WheelOdds } from '../api/client'
 import {
   BUTTON_LAUNCH_SPEED,
+  GAMBLING_WARNING_PAID_SPINS,
   MIN_FLICK_SPEED,
   buildSlices,
   launchSpeed,
@@ -9,6 +10,7 @@ import {
   planFinalSpin,
   pointerAngle,
   releaseVelocity,
+  showGamblingWarning,
   sliceIndexAt,
   targetRotation,
   unwrapDelta,
@@ -108,5 +110,15 @@ describe('flick physics', () => {
       const startSpeed = (4 * (target - current)) / duration
       if (duration > 3.5 && duration < 8) expect(startSpeed).toBeCloseTo(launchSpeed(speed))
     }
+  })
+})
+
+describe('showGamblingWarning', () => {
+  it('appears from the third paid spin in a week', () => {
+    expect(GAMBLING_WARNING_PAID_SPINS).toBe(3)
+    expect(showGamblingWarning(0)).toBe(false)
+    expect(showGamblingWarning(2)).toBe(false)
+    expect(showGamblingWarning(3)).toBe(true)
+    expect(showGamblingWarning(5)).toBe(true)
   })
 })

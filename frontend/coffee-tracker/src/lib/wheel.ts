@@ -14,6 +14,14 @@ export const PRIZE_META: Record<
   respin: { label: 'Spin again', short: 'Again', glyph: '🔁', fill: '#2a9d8f', ink: '#ffffff' },
 }
 
+/** From this many paid spins in a week, the wheel page shows a gambling warning. */
+export const GAMBLING_WARNING_PAID_SPINS = 3
+
+/** Whether the player bought enough spins this week to see the gambling warning. */
+export function showGamblingWarning(paidSpinsThisWeek: number) {
+  return paidSpinsThisWeek >= GAMBLING_WARNING_PAID_SPINS
+}
+
 /**
  * Order of the slices around the wheel. Frequent prizes are split into several
  * slices so the wheel looks lively; every slice of a prize gets an equal share
