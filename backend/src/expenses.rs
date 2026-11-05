@@ -328,6 +328,7 @@ mod tests {
             gitlab_id: Some(1),
             display_name: id.to_string(),
             leaderboard_opt_in: true,
+            simple_view: false,
             achievement_sharing_opt_out: false,
             mattermost_opt_in: false,
             stock_manager: id != "regular",

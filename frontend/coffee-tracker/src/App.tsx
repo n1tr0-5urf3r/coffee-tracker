@@ -19,6 +19,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { StempelkartePage } from './pages/StempelkartePage'
 import { WheelPage } from './pages/WheelPage'
 import { SeasonalThemeProvider } from './lib/seasonalTheme'
+import { ViewModeProvider } from './lib/viewMode'
 import { ThemeProvider } from './lib/theme'
 import { ToastProvider } from './lib/toast'
 
@@ -42,7 +43,7 @@ const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       {
-        element: <AppShell />,
+        element: <ViewModeProvider><AppShell /></ViewModeProvider>,
         children: [
           { index: true, element: <LogPage /> },
           { path: '/stempelkarte', element: <StempelkartePage /> },

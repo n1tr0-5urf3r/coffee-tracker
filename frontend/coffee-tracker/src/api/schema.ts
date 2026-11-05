@@ -1007,6 +1007,7 @@ export interface components {
             leaderboard_opt_in: boolean;
             mattermost_opt_in: boolean;
             paypal_link?: string | null;
+            simple_view: boolean;
             stock_manager: boolean;
             user_type: string;
         };
@@ -1517,6 +1518,7 @@ export interface components {
             leaderboard_opt_in?: boolean | null;
             mattermost_opt_in?: boolean | null;
             paypal_link?: string | null;
+            simple_view?: boolean | null;
         };
         UpdateStockRequest: {
             alerted?: boolean | null;

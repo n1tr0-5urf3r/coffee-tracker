@@ -828,7 +828,7 @@ fn ensure_stock_manager(user: &CurrentUser) -> ApiResult<()> {
 async fn load_current_user(state: &AppState, user_id: &str) -> ApiResult<CurrentUser> {
     let row: Option<UserProfileRow> = sqlx::query_as(
         "SELECT id, user_type, gitlab_id, display_name, leaderboard_opt_in,
-                achievement_sharing_opt_out, mattermost_opt_in, stock_manager, paypal_link
+                achievement_sharing_opt_out, mattermost_opt_in, stock_manager, paypal_link, simple_view
          FROM users
          WHERE id = ?",
     )
@@ -842,6 +842,7 @@ async fn load_current_user(state: &AppState, user_id: &str) -> ApiResult<Current
         gitlab_id: row.gitlab_id,
         display_name: row.display_name,
         leaderboard_opt_in: row.leaderboard_opt_in != 0,
+        simple_view: row.simple_view != 0,
         achievement_sharing_opt_out: row.achievement_sharing_opt_out != 0,
         mattermost_opt_in: row.mattermost_opt_in != 0,
         stock_manager: row.stock_manager != 0,
@@ -1161,6 +1162,7 @@ struct UserProfileRow {
     gitlab_id: Option<i64>,
     display_name: String,
     leaderboard_opt_in: i64,
+    simple_view: i64,
     achievement_sharing_opt_out: i64,
     mattermost_opt_in: i64,
     stock_manager: i64,
@@ -1358,6 +1360,7 @@ mod tests {
             gitlab_id: (user_type == "member").then_some(1),
             display_name: id.to_string(),
             leaderboard_opt_in: true,
+            simple_view: false,
             achievement_sharing_opt_out: false,
             mattermost_opt_in: false,
             stock_manager: id == "actor",

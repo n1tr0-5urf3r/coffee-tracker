@@ -877,6 +877,7 @@ pub(crate) mod test_support {
             gitlab_id: None,
             display_name: id.to_uppercase(),
             leaderboard_opt_in: true,
+            simple_view: false,
             achievement_sharing_opt_out: false,
             mattermost_opt_in: false,
             stock_manager: true,

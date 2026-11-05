@@ -25,6 +25,7 @@ import { stockLabelForBeverage } from '../lib/stock'
 import { currentMonthKey } from '../lib/month'
 import { stampCardProgress, type StampProgress } from '../lib/stampCard'
 import { BeverageIcon } from '../lib/beverageIcons'
+import { useViewMode } from '../lib/viewMode'
 import { describeCrates } from '../lib/cosmetics'
 import {
   compactBeverageName,
@@ -37,6 +38,7 @@ const cooldownMs = 5000
 const undoWindowMs = 30 * 1000
 
 export function LogPage() {
+  const { simple } = useViewMode()
   const queryClient = useQueryClient()
   const { pushToast } = useToast()
   const { data: me } = useMe()
@@ -110,7 +112,7 @@ export function LogPage() {
           description: 'Your free drink from the lucky wheel paid for it.',
         })
       }
-      if ((data.crates_earned?.length ?? 0) > 0) {
+      if (!simple && (data.crates_earned?.length ?? 0) > 0) {
         pushToast({
           tone: 'info',
           title: `🎁 +${data.crates_earned.length} crate${data.crates_earned.length === 1 ? '' : 's'}`,
@@ -194,11 +196,20 @@ export function LogPage() {
   const { data: wheel } = useWheel(me?.user.user_type === 'member')
   // A free drink won on the lucky wheel pays for the next priced drink.
   const wheelFreeDrinks = wheel?.free_drinks_available ?? 0
-  const nextIsFree = (stampProgress?.nextIsFree ?? false) || wheelFreeDrinks > 0
+  const stampFree = stampProgress?.nextIsFree ?? false
+  const coffeePrice = beverages.data?.beverages.find((beverage) => beverage.id === 'coffee')?.price_cents ?? 50
+  const isFree = (beverage: Beverage) => beverage.price_cents > 0 &&
+    (stampFree || (wheelFreeDrinks > 0 && beverage.price_cents <= coffeePrice))
 
   return (
     <div>
-      <PageHeader
+      {simple ? (
+        <div className="mb-6">
+          <h1 className="font-display text-2xl font-black tracking-tight sm:text-3xl">Log a drink</h1>
+          <p className="mt-2 text-sm text-berry-700 dark:text-rose-100">Machine: {machineName}</p>
+          {stampFree ? <p className="mt-3 text-sm font-bold text-primary dark:text-blush">Your next priced drink is free.</p> : wheelFreeDrinks > 0 ? <p className="mt-3 text-sm font-bold text-primary dark:text-blush">Your wheel voucher covers drinks up to {(coffeePrice / 100).toFixed(2)} €.</p> : null}
+        </div>
+      ) : <PageHeader
         title={`Hi ${me?.user.display_name ?? 'there'}, ready?`}
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -214,9 +225,25 @@ export function LogPage() {
           {stampProgress ? <StampProgressPill progress={stampProgress} /> : null}
           <WheelPill enabled={me?.user.user_type === 'member'} />
         </div>
-      </PageHeader>
+      </PageHeader>}
 
-      {beverages.isLoading || primaryBeverages.length < 2 ? (
+      {simple ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {beverages.isLoading ? <><Skeleton className="h-32" /><Skeleton className="h-32" /></> :
+            [...primaryBeverages, ...otherBeverages].map((beverage) => (
+              <SimpleBeverageButton
+                key={beverage.id}
+                beverage={beverage}
+                disabled={logMutation.isPending || cooldownSeconds > 0}
+                onClick={() => logMutation.mutate(beverage)}
+                todayCount={todayCounts.get(beverage.id) ?? 0}
+                free={isFree(beverage)}
+              />
+            ))}
+          {beverages.isError && <p role="alert" className="text-sm">Drinks could not be loaded. <button type="button" className="font-bold underline" onClick={() => void beverages.refetch()}>Try again</button></p>}
+          {beverages.isSuccess && beverages.data.beverages.length === 0 && <p>No drinks available.</p>}
+        </div>
+      ) : beverages.isLoading || primaryBeverages.length < 2 ? (
         <div className="grid grid-cols-2 gap-3">
           <Skeleton className="h-44" />
           <Skeleton className="h-44" />
@@ -230,14 +257,14 @@ export function LogPage() {
               disabled={logMutation.isPending || cooldownSeconds > 0}
               onClick={() => logMutation.mutate(beverage)}
               todayCount={todayCounts.get(beverage.id) ?? 0}
-              free={nextIsFree && beverage.price_cents > 0}
+              free={isFree(beverage)}
               cupGlyph={cupGlyph}
             />
           ))}
         </div>
       )}
 
-      {otherBeverages.length > 0 ? (
+      {!simple && otherBeverages.length > 0 ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {otherBeverages.map((beverage) => (
             <BeverageButton
@@ -245,13 +272,18 @@ export function LogPage() {
               beverage={beverage}
               disabled={logMutation.isPending || cooldownSeconds > 0}
               onClick={() => logMutation.mutate(beverage)}
-              free={nextIsFree && beverage.price_cents > 0}
+              free={isFree(beverage)}
             />
           ))}
         </div>
       ) : null}
 
-      <ChoresCard />
+      {simple ? (
+        <details className="mt-6 text-sm">
+          <summary className="w-fit cursor-pointer rounded-lg py-2 font-bold text-berry-700 dark:text-rose-100">Machine chores</summary>
+          <ChoresCard />
+        </details>
+      ) : <ChoresCard />}
 
       <AnimatePresence>
         {cooldownSeconds > 0 ? (
@@ -262,6 +294,7 @@ export function LogPage() {
       <AnimatePresence>
         {lastLog && !lastLog.id.startsWith('offline') && undoSeconds > 0 ? (
           <UndoOverlay
+            simple={simple}
             beverageName={lastLog.beverageName}
             seconds={undoSeconds}
             progress={undoProgress}
@@ -385,12 +418,14 @@ function CooldownOverlay({
 }
 
 function UndoOverlay({
+  simple,
   beverageName,
   seconds,
   progress,
   disabled,
   onClick,
 }: {
+  simple: boolean
   beverageName: string
   seconds: number
   progress: number
@@ -398,7 +433,7 @@ function UndoOverlay({
   onClick: () => void
 }) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-40 z-50 flex justify-center px-4 md:left-[15rem] md:right-4 md:top-44">
+    <div className={cn("pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4", simple ? "bottom-6" : "top-40 md:left-[15rem] md:right-4 md:top-44")}>
       <motion.button
         type="button"
         onClick={onClick}
@@ -604,5 +639,30 @@ function CupMark({
         className,
       )}
     />
+  )
+}
+
+function SimpleBeverageButton({ beverage, disabled, onClick, todayCount, free }: {
+  beverage: Beverage
+  disabled: boolean
+  onClick: () => void
+  todayCount: number
+  free: boolean
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={`Log ${beverage.name}`}
+      disabled={disabled}
+      onClick={onClick}
+      className="flex min-h-24 cursor-pointer items-center gap-4 rounded-3xl border border-berry-100 bg-card p-4 text-left transition-colors sm:min-h-32 sm:p-5 hover:border-primary hover:bg-primary/5 disabled:pointer-events-none disabled:opacity-55 dark:border-white/15 dark:bg-berry-900 dark:hover:border-blush"
+    >
+      <BeverageIcon beverageId={beverage.id} className="size-7 shrink-0 text-primary dark:text-blush" />
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-lg font-black">{compactBeverageName(beverage)}</span>
+        <span className="mt-1 block text-xs text-berry-700 dark:text-rose-100">Today {todayCount}</span>
+      </span>
+      <span className="shrink-0 text-sm font-bold text-primary dark:text-blush">{free ? 'Free' : `${(beverage.price_cents / 100).toFixed(2)} €`}</span>
+    </button>
   )
 }

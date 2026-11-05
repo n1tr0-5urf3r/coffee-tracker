@@ -1,0 +1,1 @@
+ALTER TABLE users ADD COLUMN simple_view INTEGER NOT NULL DEFAULT 0 CHECK (simple_view IN (0, 1));

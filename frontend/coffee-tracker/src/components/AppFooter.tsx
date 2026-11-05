@@ -6,9 +6,17 @@ export function footerVersionLine(backendVersion: string) {
   return `${branding.appName} v${trackerVersion} · Frontend v${frontendVersion} · Backend v${backendVersion}`
 }
 
-export function AppFooter() {
+export function AppFooter({ compact = false }: { compact?: boolean }) {
   const version = useVersion()
   const backendVersion = version.data?.backend_version ?? 'unknown'
+
+  if (compact) {
+    return (
+      <footer className="mt-8 py-4 text-center text-xs text-berry-700 dark:text-rose-100">
+        <a href={branding.githubUrl} target="_blank" rel="noreferrer" className="rounded underline decoration-current/40 underline-offset-2">Source · AGPL-3.0-only</a>
+      </footer>
+    )
+  }
 
   return (
     <footer className="mt-8 border-t border-berry-100 px-1 py-6 text-center text-xs font-bold leading-relaxed text-berry-700 dark:border-white/10 dark:text-rose-100">

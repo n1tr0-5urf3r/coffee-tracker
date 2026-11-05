@@ -32,8 +32,12 @@ import { WheelStatsPanel } from '../components/WheelStatsPanel'
 import { cn } from '../lib/cn'
 import { formatUnixDate } from '../lib/date'
 import { formatEuros, paymentAmountDueCents, paymentCashCents } from '../lib/money'
+import { buildPaymentUrl } from '../lib/paymentLinks'
+export { buildPaymentUrl } from '../lib/paymentLinks'
 import { useToast } from '../lib/toast'
 import { branding } from '../config/branding'
+import { useViewMode } from '../lib/viewMode'
+import { SimplePaymentsPage } from './SimplePaymentsPage'
 
 type PaymentsSection = 'overview' | 'expenses' | 'ledger' | 'wheel'
 
@@ -45,6 +49,11 @@ const staffSections: { section: PaymentsSection; to: string; label: string; icon
 ]
 
 export function PaymentsPage() {
+  const { simple } = useViewMode()
+  return simple ? <SimplePaymentsPage /> : <FullPaymentsPage />
+}
+
+function FullPaymentsPage() {
   const { data: me } = useMe()
   const { section: sectionParam } = useParams()
   const isStaff = Boolean(me?.user.stock_manager)
@@ -743,17 +752,6 @@ export function autoReminderNote(autoReminder: AutoReminderInfo, links: PaypalLi
   return `Sent automatically on the last day of each month at ${time}${via}.`
 }
 
-export function buildPaymentUrl(baseLink: string, amountCents: number) {
-  const amount = (amountCents / 100).toFixed(2)
-  const trimmed = baseLink.trim()
-  try {
-    const url = new URL(trimmed)
-    url.pathname = `${url.pathname.replace(/\/+$/, '')}/${amount}`
-    return url.toString()
-  } catch {
-    return `${trimmed.replace(/\/+$/, '')}/${amount}`
-  }
-}
 
 function PaymentEntryCard({
   entry,

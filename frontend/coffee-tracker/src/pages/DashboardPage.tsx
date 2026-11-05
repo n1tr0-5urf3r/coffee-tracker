@@ -39,11 +39,18 @@ import { debtTotals, formatEuros } from '../lib/money'
 import { cn } from '../lib/cn'
 import { BrandWatermark } from '../components/BrandWatermark'
 import { branding } from '../config/branding'
+import { useViewMode } from '../lib/viewMode'
+import { SimpleStatsPage } from './SimpleStatsPage'
 
 const MEMBER_COLOR = '#A62C4D'
 const GUEST_COLOR = '#ffd166'
 
 export function DashboardPage() {
+  const { simple } = useViewMode()
+  return simple ? <SimpleStatsPage /> : <FullDashboardPage />
+}
+
+function FullDashboardPage() {
   const { data: me } = useMe()
   const stats = useStats()
   const summary = stats.summary.data

@@ -48,6 +48,7 @@ pub struct CurrentUser {
     pub gitlab_id: Option<i64>,
     pub display_name: String,
     pub leaderboard_opt_in: bool,
+    pub simple_view: bool,
     pub achievement_sharing_opt_out: bool,
     pub mattermost_opt_in: bool,
     pub stock_manager: bool,
@@ -95,6 +96,7 @@ pub struct GuestLoginRequest {
 pub struct UpdateSettingsRequest {
     pub display_name: Option<String>,
     pub leaderboard_opt_in: Option<bool>,
+    pub simple_view: Option<bool>,
     pub achievement_sharing_opt_out: Option<bool>,
     pub mattermost_opt_in: Option<bool>,
     pub paypal_link: Option<Option<String>>,
@@ -793,7 +795,12 @@ pub(crate) async fn update_settings(
             .await?;
     }
 
-    let setting_updates: [(&'static str, Option<bool>, bool); 3] = [
+    let setting_updates: [(&'static str, Option<bool>, bool); 4] = [
+        (
+            "UPDATE users SET simple_view = ?, updated_at = ? WHERE id = ?",
+            input.simple_view,
+            false,
+        ),
         (
             "UPDATE users SET leaderboard_opt_in = ?, updated_at = ? WHERE id = ?",
             input.leaderboard_opt_in,
@@ -884,7 +891,7 @@ fn validate_payment_link(value: &str) -> ApiResult<()> {
 pub async fn load_user_by_id(state: &AppState, user_id: &str) -> ApiResult<CurrentUser> {
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT id, user_type, gitlab_id, display_name, leaderboard_opt_in,
-         achievement_sharing_opt_out, mattermost_opt_in, stock_manager, paypal_link
+         achievement_sharing_opt_out, mattermost_opt_in, stock_manager, paypal_link, simple_view
             FROM users WHERE id = ?",
     )
     .bind(user_id)
@@ -904,7 +911,7 @@ async fn load_user_from_session(state: &AppState, token: &str) -> ApiResult<Curr
     let now = now_ts();
     let row = sqlx::query_as::<_, UserRow>(
         "SELECT u.id, u.user_type, u.gitlab_id, u.display_name, u.leaderboard_opt_in,
-         u.achievement_sharing_opt_out, u.mattermost_opt_in, u.stock_manager, u.paypal_link
+         u.achievement_sharing_opt_out, u.mattermost_opt_in, u.stock_manager, u.paypal_link, u.simple_view
             FROM sessions s
             JOIN users u ON u.id = s.user_id
             WHERE s.id_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
@@ -1405,6 +1412,7 @@ struct UserRow {
     gitlab_id: Option<i64>,
     display_name: String,
     leaderboard_opt_in: i64,
+    simple_view: i64,
     achievement_sharing_opt_out: i64,
     mattermost_opt_in: i64,
     stock_manager: i64,
@@ -1419,6 +1427,7 @@ impl From<UserRow> for CurrentUser {
             gitlab_id: row.gitlab_id,
             display_name: row.display_name,
             leaderboard_opt_in: row.leaderboard_opt_in != 0,
+            simple_view: row.simple_view != 0,
             achievement_sharing_opt_out: row.achievement_sharing_opt_out != 0,
             mattermost_opt_in: row.mattermost_opt_in != 0,
             stock_manager: row.stock_manager != 0,
@@ -1431,6 +1440,42 @@ impl From<UserRow> for CurrentUser {
 mod tests {
     use super::*;
     use crate::{config::Config, db::connect};
+
+    #[tokio::test]
+    async fn simple_view_is_saved_per_account_and_loaded_in_new_sessions() {
+        let state = state().await;
+        let first = upsert_guest_user(&state, "Simple Guest", None, None)
+            .await
+            .unwrap();
+        let other = upsert_guest_user(&state, "Other Guest", None, None)
+            .await
+            .unwrap();
+        let user = load_user_by_id(&state, &first.user_id).await.unwrap();
+        assert!(!user.simple_view);
+
+        for enabled in [true, false] {
+            let input =
+                serde_json::from_value(serde_json::json!({"simple_view": enabled})).unwrap();
+            let response = update_settings(State(state.clone()), user.clone(), Json(input))
+                .await
+                .unwrap();
+            assert_eq!(response.0.user.simple_view, enabled);
+            let token = create_session(&state, &first.user_id).await.unwrap();
+            assert_eq!(
+                load_user_from_session(&state, &token)
+                    .await
+                    .unwrap()
+                    .simple_view,
+                enabled
+            );
+            assert!(
+                !load_user_by_id(&state, &other.user_id)
+                    .await
+                    .unwrap()
+                    .simple_view
+            );
+        }
+    }
 
     #[test]
     fn allowed_group_matches_path_or_full_path() {

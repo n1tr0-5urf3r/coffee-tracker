@@ -18,6 +18,8 @@ import { equippedAvatarArtwork } from '../lib/cosmetics'
 import { PageHeader } from '../components/PageHeader'
 import { useTheme, type ThemeChoice } from '../lib/theme'
 import { useSeasonalTheme } from '../lib/seasonalTheme'
+import { useViewMode } from '../lib/viewMode'
+import { SimpleViewSwitch } from '../components/SimpleViewSwitch'
 import { SEASONS } from '../lib/seasons'
 import { useToast } from '../lib/toast'
 import { formatStockValue } from '../lib/stock'
@@ -29,6 +31,7 @@ import {
 import { branding } from '../config/branding'
 
 export function SettingsPage() {
+  const { simple } = useViewMode()
   const { data } = useMe()
   const { data: locker } = useLocker()
   const settings = useSettingsMutation()
@@ -144,14 +147,23 @@ export function SettingsPage() {
       <div className="space-y-5">
         <div className="grid gap-5 xl:grid-cols-2">
           <Card className="flex min-h-28 items-center gap-4 p-4 sm:p-5">
-            <Link to="/locker" aria-label="Change profile picture in the locker" className="shrink-0">
+            {simple ? (
               <UserAvatar
                 name={user?.display_name ?? 'Coffee friend'}
                 artworkPath={equippedAvatarArtwork(locker)}
                 frameId={locker?.equipped.frame}
                 size="lg"
               />
-            </Link>
+            ) : (
+              <Link to="/locker" aria-label="Change profile picture in the locker" className="shrink-0">
+                <UserAvatar
+                  name={user?.display_name ?? 'Coffee friend'}
+                  artworkPath={equippedAvatarArtwork(locker)}
+                  frameId={locker?.equipped.frame}
+                  size="lg"
+                />
+              </Link>
+            )}
             <div className="min-w-0">
               <p className="break-words font-display text-xl font-black">
                 {user?.display_name}
@@ -163,7 +175,8 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <p className="mb-4 font-display text-xl font-black">Theme</p>
+            <SimpleViewSwitch />
+            <p className="mb-4 mt-4 font-display text-xl font-black">Theme</p>
             <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
               <ThemeButton
                 value="system"
