@@ -19,6 +19,8 @@ pub enum ApiError {
     NotFound,
     #[error("{0}")]
     ServiceUnavailable(String),
+    #[error("{0}")]
+    TooManyRequests(String),
     #[error("upstream service error")]
     Upstream,
     #[error(transparent)]
@@ -41,6 +43,7 @@ impl IntoResponse for ApiError {
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::Upstream => StatusCode::BAD_GATEWAY,
             Self::Sqlx(_) | Self::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };

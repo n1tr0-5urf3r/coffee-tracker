@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     AppState,
-    achievements::{AchievementEvent, evaluate_global},
+    achievements::{AchievementEvent, evaluate_global, reward_epoch},
     auth::CurrentUser,
     db::now_ts,
     error::{ApiError, ApiResult},
@@ -239,7 +239,7 @@ pub(crate) async fn open_lootbox(
     let inserted = sqlx::query(
         "INSERT INTO lootbox_openings
          (id, user_id, item_id, rarity, duplicate, beans_awarded, opened_at)
-         SELECT ?, ?, ?, ?, owned.value, CASE WHEN owned.value THEN ? ELSE 0 END, ?
+         SELECT ?, ?, ?, ?, owned.value, CASE WHEN owned.value THEN ? ELSE 0 END, unixepoch()
          FROM (SELECT EXISTS(
                  SELECT 1 FROM user_cosmetics WHERE user_id = ? AND item_id = ?
                ) AS value) AS owned
@@ -251,7 +251,6 @@ pub(crate) async fn open_lootbox(
     .bind(item.id)
     .bind(item.rarity.as_str())
     .bind(item.rarity.duplicate_beans())
-    .bind(now)
     .bind(&user.id)
     .bind(item.id)
     .bind(&user.id)
@@ -445,8 +444,13 @@ pub async fn ensure_onboarded(state: &AppState, user_id: &str) -> ApiResult<i64>
 /// Idempotent; safe to call on every read. Every unlocked achievement counts
 /// (including ones from before lootboxes existed); shopping trips and full
 /// stamp cards only count from onboarding on.
+///
+/// Every write is skipped once a drink of the user is undone mid-sync (the
+/// reward epoch moved on), because it was computed from data that may still
+/// contain that drink; the undo re-syncs afterwards.
 pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<String>> {
     let onboarded_at = ensure_onboarded(state, user_id).await?;
+    let epoch = reward_epoch(state, user_id).await?;
     let mut new_grants: Vec<String> = Vec::new();
     let mut record = |source: &str, count: u64| {
         new_grants.extend(std::iter::repeat_n(source.to_string(), count as usize));
@@ -456,9 +460,12 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
         "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
          SELECT lower(hex(randomblob(16))), au.user_id, 'achievement', au.achievement_id, au.unlocked_at
          FROM achievement_unlocks au
-         WHERE au.user_id = ?",
+         WHERE au.user_id = ?
+           AND (SELECT reward_epoch FROM users WHERE id = ?) = ?",
     )
     .bind(user_id)
+    .bind(user_id)
+    .bind(epoch)
     .execute(&state.db)
     .await?;
     record("achievement", result.rows_affected());
@@ -470,29 +477,21 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
                 date(logged_at, 'unixepoch'), MIN(logged_at)
          FROM expense_entries
          WHERE user_id = ? AND amount_cents >= 100 AND logged_at >= ?
+           AND (SELECT reward_epoch FROM users WHERE id = ?) = ?
          GROUP BY user_id, date(logged_at, 'unixepoch')",
     )
     .bind(user_id)
     .bind(onboarded_at)
+    .bind(user_id)
+    .bind(epoch)
     .execute(&state.db)
     .await?;
     record("shopping", result.rows_affected());
-    // Paying your tab keeps the coffee fund alive: one crate per payment >= 1 EUR.
-    let result = sqlx::query(
-        "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
-         SELECT lower(hex(randomblob(16))), user_id, 'payment', id, paid_at
-         FROM payments
-         WHERE user_id = ? AND amount_cents >= 100 AND paid_at >= ?",
-    )
-    .bind(user_id)
-    .bind(onboarded_at)
-    .execute(&state.db)
-    .await?;
-    record("payment", result.rows_affected());
 
     let existing: HashSet<(String, String)> = sqlx::query_as::<_, (String, String)>(
         "SELECT source, source_ref FROM lootbox_grants
-         WHERE user_id = ? AND source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone')",
+         WHERE user_id = ?
+           AND source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone', 'payment')",
     )
     .bind(user_id)
     .fetch_all(&state.db)
@@ -513,6 +512,24 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
         }
     }
 
+    let tz = resolve_tz(&state.config.timezone);
+    // Paying your tab keeps the coffee fund alive: one crate per local month
+    // with a confirmed payment >= 1 EUR, so splitting a tab into many small
+    // payments cannot farm crates.
+    let payments: Vec<(i64,)> = sqlx::query_as(
+        "SELECT paid_at FROM payments
+         WHERE user_id = ? AND status = 'confirmed' AND amount_cents >= 100 AND paid_at >= ?
+         ORDER BY paid_at ASC",
+    )
+    .bind(user_id)
+    .bind(onboarded_at)
+    .fetch_all(&state.db)
+    .await?;
+    for (paid_at,) in payments {
+        // The first payment of each month is the one that counts.
+        missing.push(("payment", payment_month_ref(paid_at, &tz), paid_at));
+    }
+
     let consumed_at: Vec<i64> = sqlx::query_as::<_, (i64,)>(
         "SELECT consumed_at FROM consumptions WHERE user_id = ? ORDER BY consumed_at ASC",
     )
@@ -522,7 +539,6 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
     .into_iter()
     .map(|(timestamp,)| timestamp)
     .collect();
-    let tz = resolve_tz(&state.config.timezone);
     let daily_granted: Vec<chrono::NaiveDate> = existing
         .iter()
         .filter(|(source, _)| source == "daily")
@@ -547,11 +563,17 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
         if existing.contains(&(source.to_string(), source_ref.clone())) {
             continue;
         }
-        if grant(state, user_id, source, &source_ref, granted_at).await? {
+        if grant_at_epoch(state, user_id, source, &source_ref, granted_at, Some(epoch)).await? {
             new_grants.push(source.to_string());
         }
     }
     Ok(new_grants)
+}
+
+/// `YYYY-MM` of the local month a payment falls in.
+pub fn payment_month_ref(paid_at: i64, tz: &chrono_tz::Tz) -> String {
+    let (year, month) = loyalty::local_month(paid_at, tz);
+    format!("{year:04}-{month:02}")
 }
 
 pub fn stamp_card_ref(month: &str, card_index: i64) -> String {
@@ -565,18 +587,61 @@ pub async fn grant(
     source_ref: &str,
     granted_at: i64,
 ) -> ApiResult<bool> {
+    grant_at_epoch(state, user_id, source, source_ref, granted_at, None).await
+}
+
+/// Like [`grant`], but only while the user's reward epoch still is `epoch`.
+async fn grant_at_epoch(
+    state: &AppState,
+    user_id: &str,
+    source: &str,
+    source_ref: &str,
+    granted_at: i64,
+    epoch: Option<i64>,
+) -> ApiResult<bool> {
     let inserted = sqlx::query(
         "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
-         VALUES (?, ?, ?, ?, ?)",
+         SELECT ?, ?, ?, ?, ?
+         WHERE ? IS NULL OR (SELECT reward_epoch FROM users WHERE id = ?) = ?",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(user_id)
     .bind(source)
     .bind(source_ref)
     .bind(granted_at)
+    .bind(epoch)
+    .bind(user_id)
+    .bind(epoch)
     .execute(&state.db)
     .await?;
     Ok(inserted.rows_affected() > 0)
+}
+
+/// Undo support: removes the crates since `since` (the undone drink's time)
+/// that drinks may have earned, plus the crates of achievements that are no
+/// longer unlocked. Run it after [`crate::achievements::revoke_unlocks_since`];
+/// the caller re-syncs afterwards, restoring whatever is still earned.
+pub(crate) async fn revoke_grants_since(
+    conn: &mut sqlx::SqliteConnection,
+    user_id: &str,
+    since: i64,
+) -> ApiResult<()> {
+    sqlx::query(
+        "DELETE FROM lootbox_grants
+         WHERE user_id = ? AND granted_at >= ?
+           AND (
+               source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone')
+               OR (source = 'achievement' AND source_ref NOT IN (
+                   SELECT achievement_id FROM achievement_unlocks WHERE user_id = ?
+               ))
+           )",
+    )
+    .bind(user_id)
+    .bind(since)
+    .bind(user_id)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 /// Re-evaluates achievements that depend on the locker (and the grants they earn).
@@ -1147,6 +1212,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn split_payments_earn_one_crate_per_month() {
+        let state = state_with_users(&["alice"]).await;
+        let onboarded_at = ensure_onboarded(&state, "alice").await.unwrap();
+        let next_month = onboarded_at + 40 * 24 * 3600;
+        // Ten 1 EUR payments right after another, then one the month after.
+        let paid_at = (0..10).map(|i| onboarded_at + i).chain([next_month]);
+        for (i, at) in paid_at.enumerate() {
+            sqlx::query(
+                "INSERT INTO payments (id, user_id, amount_cents, drink_count, period_end_ts, paid_at, created_at)
+                 VALUES (?, 'alice', 100, 2, ?, ?, ?)",
+            )
+            .bind(format!("pay-{i}"))
+            .bind(at)
+            .bind(at)
+            .bind(at)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+        sync_grants(&state, "alice").await.unwrap();
+        assert_eq!(
+            load_locker(&state, "alice").await.unwrap().sources.payment,
+            2
+        );
+    }
+
+    #[tokio::test]
     async fn logging_a_drink_reports_the_crates_it_earned() {
         let state = state_with_users(&["alice"]).await;
         ensure_onboarded(&state, "alice").await.unwrap();
@@ -1173,6 +1265,28 @@ mod tests {
                 .crates_earned
                 .iter()
                 .any(|source| source == "achievement")
+        );
+    }
+
+    #[tokio::test]
+    async fn grants_are_skipped_once_the_reward_epoch_moved_on() {
+        let state = state_with_users(&["alice"]).await;
+        let stale = reward_epoch(&state, "alice").await.unwrap();
+        // What undoing a drink does.
+        sqlx::query("UPDATE users SET reward_epoch = reward_epoch + 1 WHERE id = 'alice'")
+            .execute(&state.db)
+            .await
+            .unwrap();
+        assert!(
+            !grant_at_epoch(&state, "alice", "daily", "2026-11-05", 1, Some(stale))
+                .await
+                .unwrap()
+        );
+        let current = reward_epoch(&state, "alice").await.unwrap();
+        assert!(
+            grant_at_epoch(&state, "alice", "daily", "2026-11-05", 1, Some(current))
+                .await
+                .unwrap()
         );
     }
 

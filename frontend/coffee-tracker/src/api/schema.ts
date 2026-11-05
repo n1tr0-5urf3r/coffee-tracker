@@ -238,6 +238,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /**
+         * Undoing a drink also takes back what it earned: every crate and achievement
+         *     since the drink was logged is revoked and then re-evaluated against the
+         *     remaining drinks. A drink cannot be undone once it is on a paid tab, nor once
+         *     a crate was opened after it, since that crate may have been one of its rewards.
+         */
         delete: operations["delete_consumption"];
         options?: never;
         head?: never;
@@ -1223,6 +1229,12 @@ export interface components {
             beverages: components["schemas"]["BeverageSummary"][];
         };
         MyPaymentResponse: {
+            /**
+             * Format: int64
+             * @description What the user has to pay now: the tab minus the expense balance (see
+             *     `payable_balance_cents`).
+             */
+            amount_due_cents: number;
             /** Format: int64 */
             expense_amount_cents: number;
             /** Format: int64 */
@@ -1233,6 +1245,7 @@ export interface components {
             paid_amount_cents: number;
             /** Format: int64 */
             paid_drink_count: number;
+            pending_payment?: null | components["schemas"]["PaymentRecord"];
             /** Format: int64 */
             received_payment_amount_cents: number;
             /** Format: int64 */
@@ -1260,10 +1273,20 @@ export interface components {
             entries: components["schemas"]["PaymentRecipient"][];
         };
         PaymentRecord: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Coffee tab (drinks and wheel spins) this payment settles.
+             */
             amount_cents: number;
             /** Format: int64 */
             drink_count: number;
+            /**
+             * Format: int64
+             * @description Expense balance the payment settled on top of the tab: positive when
+             *     the payer handed back Kasse money, negative when the tab was offset
+             *     against what the Kasse owed them. The recipient got the sum of both.
+             */
+            expense_settled_cents: number;
             id: string;
             note?: string | null;
             /** Format: int64 */
@@ -1271,6 +1294,8 @@ export interface components {
             /** Format: int64 */
             period_end_ts: number;
             received_by_user_id?: string | null;
+            /** @description `pending` until the recipient confirms they got the money, else `confirmed`. */
+            status: string;
             user_id: string;
         };
         PaymentReminderRequest: {
@@ -1280,6 +1305,12 @@ export interface components {
             reminded_count: number;
         };
         PaymentSummary: {
+            /**
+             * Format: int64
+             * @description What the user has to pay now: the tab minus the expense balance (see
+             *     `payable_balance_cents`).
+             */
+            amount_due_cents: number;
             display_name: string;
             email_available: boolean;
             /** Format: int64 */
@@ -1346,10 +1377,20 @@ export interface components {
             rarity: components["schemas"]["Rarity"];
         };
         ReceivedPaymentEntry: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Coffee tab (drinks and wheel spins) this payment settles.
+             */
             amount_cents: number;
             /** Format: int64 */
             drink_count: number;
+            /**
+             * Format: int64
+             * @description Expense balance the payment settled on top of the tab: positive when
+             *     the payer handed back Kasse money, negative when the tab was offset
+             *     against what the Kasse owed them. The recipient got the sum of both.
+             */
+            expense_settled_cents: number;
             id: string;
             note?: string | null;
             /** Format: int64 */
@@ -1358,6 +1399,8 @@ export interface components {
             payer_user_id: string;
             recipient_display_name: string;
             recipient_user_id: string;
+            /** @description `pending` until the recipient confirms it, else `confirmed`. */
+            status: string;
         };
         RecentAchievementUnlock: {
             achievement_id: string;
@@ -1949,6 +1992,13 @@ export interface operations {
         responses: {
             /** @description Consumption deleted */
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The drink is on a paid tab, or a crate was opened since */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

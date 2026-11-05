@@ -110,31 +110,56 @@ pub(crate) async fn update_stock(
 }
 
 pub async fn decrement_for_beverage(state: &AppState, beverage_id: &str) -> ApiResult<()> {
+    adjust_for_beverage(state, beverage_id, -1.0).await
+}
+
+/// Gives back what logging the drink took, when the drink is undone. The
+/// low-stock alert stays as it is: only a restock re-arms it.
+pub async fn restore_for_beverage(state: &AppState, beverage_id: &str) -> ApiResult<()> {
+    adjust_for_beverage(state, beverage_id, 1.0).await
+}
+
+/// Moves the stock by `direction` portions. Read and write happen in one
+/// transaction that takes the write lock first, so concurrent drinks cannot
+/// lose updates or both fire the low-stock alert.
+async fn adjust_for_beverage(state: &AppState, beverage_id: &str, direction: f64) -> ApiResult<()> {
     let Some(stock_id) = stock_item_for_beverage(beverage_id) else {
         return Ok(());
     };
-    let item = load_stock_item(state, stock_id).await?;
+    let now = now_ts();
+    let mut tx = state.db.begin().await?;
+    let locked = sqlx::query("UPDATE stock_items SET updated_at = ? WHERE id = ?")
+        .bind(now)
+        .bind(stock_id)
+        .execute(&mut *tx)
+        .await?;
+    if locked.rows_affected() == 0 {
+        return Ok(());
+    }
+    let item = sqlx::query_as::<_, StockItem>(
+        "SELECT id, name, unit, current_amount, critical_amount,
+                decrement_per_log, alerted, updated_at
+         FROM stock_items WHERE id = ?",
+    )
+    .bind(stock_id)
+    .fetch_one(&mut *tx)
+    .await?;
     if item.decrement_per_log <= 0.0 {
         return Ok(());
     }
 
     let previous = item.current_amount;
-    let next = normalize_amount((previous - item.decrement_per_log).max(0.0));
+    let next = normalize_amount((previous + direction * item.decrement_per_log).max(0.0));
     let crossed_threshold = previous > item.critical_amount && next <= item.critical_amount;
     let should_alert = crossed_threshold && !item.alerted;
-    let now = now_ts();
 
-    sqlx::query(
-        "UPDATE stock_items
-         SET current_amount = ?, alerted = ?, updated_at = ?
-         WHERE id = ?",
-    )
-    .bind(next)
-    .bind((item.alerted || should_alert) as i64)
-    .bind(now)
-    .bind(&item.id)
-    .execute(&state.db)
-    .await?;
+    sqlx::query("UPDATE stock_items SET current_amount = ?, alerted = ? WHERE id = ?")
+        .bind(next)
+        .bind((item.alerted || should_alert) as i64)
+        .bind(&item.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
 
     if should_alert {
         notify_stock_low(state, &item.name, next, item.critical_amount, &item.unit).await;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { debtTotals, formatEuros, paymentAmountDueCents } from './money'
+import { debtTotals, formatEuros, paymentAmountDueCents, paymentCashCents } from './money'
 
 describe('money helpers', () => {
   it('formats cent amounts as euros', () => {
@@ -59,5 +59,21 @@ describe('money helpers', () => {
         expense_balance_cents: -200,
       }),
     ).toBe(1500)
+  })
+})
+
+describe('paymentCashCents', () => {
+  it('adds the settled expense balance to the tab', () => {
+    expect(paymentCashCents({ amount_cents: 3325, expense_settled_cents: 2492 })).toBe(5817)
+    expect(paymentCashCents({ amount_cents: 50, expense_settled_cents: -50 })).toBe(0)
+    expect(paymentCashCents({ amount_cents: 100 })).toBe(100)
+  })
+})
+
+describe('paymentAmountDueCents', () => {
+  it("prefers the backend's amount due", () => {
+    const kasse = { unpaid_amount_cents: 2375, expense_balance_cents: -9654 }
+    expect(paymentAmountDueCents(kasse)).toBe(12029)
+    expect(paymentAmountDueCents({ ...kasse, amount_due_cents: 2375 })).toBe(2375)
   })
 })

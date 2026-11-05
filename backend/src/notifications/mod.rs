@@ -51,6 +51,21 @@ pub async fn notify_unlocks(state: &AppState, user: &CurrentUser, unlocks: &[Ach
         "posting achievement unlocks to webhooks",
     );
     for unlock in unlocks {
+        // Announce each achievement once: undoing a drink revokes an unlock,
+        // and logging again would otherwise post it a second time.
+        let first_time = sqlx::query(
+            "INSERT OR IGNORE INTO achievement_notifications (user_id, achievement_id, notified_at)
+             VALUES (?, ?, unixepoch())",
+        )
+        .bind(&user.id)
+        .bind(&unlock.id)
+        .execute(&state.db)
+        .await;
+        match first_time {
+            Ok(result) if result.rows_affected() == 0 => continue,
+            Ok(_) => {}
+            Err(err) => tracing::warn!(?err, "could not record achievement notification"),
+        }
         let text = achievement_message(&user.display_name, unlock);
         post_webhooks(state, &destinations, &text, "achievement").await;
     }
@@ -133,10 +148,31 @@ async fn post_webhook(
     }
 }
 
+/// Makes user-controlled text inert in chat markdown: drops control
+/// characters (no injected lines), backslash-escapes markdown syntax (no links
+/// or formatting) and breaks `@` mentions with a zero-width space.
+pub fn chat_safe(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            c if c.is_control() => out.push(' '),
+            '\\' | '*' | '_' | '`' | '[' | ']' | '(' | ')' | '#' | '~' | '>' | '<' | '|' | '!' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            '@' => out.push_str("@\u{200B}"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn achievement_message(display_name: &str, unlock: &AchievementEvent) -> String {
     format!(
         "🏆 **{} unlocked achievement: {}**\n{}",
-        display_name, unlock.name, unlock.description
+        chat_safe(display_name),
+        unlock.name,
+        unlock.description
     )
 }
 
@@ -158,8 +194,11 @@ pub async fn notify_stock_low(
         "posting stock-low reminder to webhooks"
     );
     let text = format!(
-        "⚠️ Coffee stock reminder: {item_name} is low ({:.2} {unit} left, threshold {:.2} {unit}). Please order more.",
-        current_amount, critical_amount
+        "⚠️ Coffee stock reminder: {} is low ({:.2} {unit} left, threshold {:.2} {unit}). Please order more.",
+        chat_safe(item_name),
+        current_amount,
+        critical_amount,
+        unit = chat_safe(unit),
     );
     post_webhooks(state, &destinations, &text, "stock_low").await;
 }
@@ -193,8 +232,8 @@ pub async fn notify_payment_reminder(state: &AppState, text: &str) {
 
 fn payment_marked_paid_message(display_name: &str, amount_cents: i64) -> String {
     format!(
-        "💸 **{} marked their debt of {} as paid.** ☕",
-        display_name,
+        "💸 **{} paid their debt of {}.** ☕",
+        chat_safe(display_name),
         format_euros(amount_cents)
     )
 }
@@ -228,7 +267,16 @@ mod tests {
     fn payment_marked_paid_message_is_webhook_markdown() {
         assert_eq!(
             payment_marked_paid_message("Ada", 1220),
-            "💸 **Ada marked their debt of 12.20 EUR as paid.** ☕"
+            "💸 **Ada paid their debt of 12.20 EUR.** ☕"
         );
+    }
+
+    #[test]
+    fn user_names_cannot_inject_markdown_or_mentions() {
+        let message = payment_marked_paid_message("@channel [Pay](https://evil.example)\nhi", 100);
+        assert!(!message.contains("@channel"));
+        assert!(!message.contains("[Pay]("));
+        assert!(!message.contains('\n'));
+        assert!(message.contains("@\u{200B}channel \\[Pay\\]\\(https://evil.example\\) hi"));
     }
 }

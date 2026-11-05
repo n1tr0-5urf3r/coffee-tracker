@@ -145,6 +145,18 @@ export function LogPage() {
       })
       await invalidateCoffeeData(queryClient)
     },
+    onError: (error) => {
+      // 409: the drink is already on a paid tab, or a crate was opened after it.
+      const locked = error instanceof ApiError && error.status === 409
+      if (locked) setLastLog(null)
+      pushToast({
+        tone: 'error',
+        title: locked ? 'This cup stays on the sheet' : 'Undo failed',
+        description: locked
+          ? error.message.charAt(0).toUpperCase() + error.message.slice(1) + '.'
+          : 'The tally sheet would not let go. Try again in a moment.',
+      })
+    },
   })
 
   const cooldownSeconds = useMemo(() => {

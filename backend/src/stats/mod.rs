@@ -379,20 +379,18 @@ pub(crate) async fn global_summary(
             .bind(last_7_days_start)
             .fetch_one(&state.db)
             .await?;
-    let (unpaid_total_cents,): (Option<i64>,) = sqlx::query_as(
-        "SELECT SUM(b.price_cents)
-         FROM consumptions c
-         JOIN beverages b ON b.id = c.beverage_id
-         WHERE c.consumed_at >= COALESCE(
-           (SELECT MAX(p.period_end_ts) FROM payments p WHERE p.user_id = c.user_id),
-           0
-         )
-           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)",
-    )
-    .fetch_one(&state.db)
-    .await?;
+    // Open tabs, computed exactly like the payments page (stamp-card discount,
+    // wheel spins), summed over everyone with a drink or spin.
+    let tab_users: Vec<(String,)> =
+        sqlx::query_as("SELECT user_id FROM consumptions UNION SELECT user_id FROM wheel_spins")
+            .fetch_all(&state.db)
+            .await?;
+    let mut unpaid_total_cents = 0;
+    for (user_id,) in tab_users {
+        unpaid_total_cents += crate::payments::open_tab_cents(&state, &user_id).await?;
+    }
     let (paid_total_cents,): (Option<i64>,) =
-        sqlx::query_as("SELECT SUM(amount_cents) FROM payments")
+        sqlx::query_as("SELECT SUM(amount_cents) FROM payments WHERE status = 'confirmed'")
             .fetch_one(&state.db)
             .await?;
     let (kn_drinks, kn_coffees, guest_drinks, guest_coffees): (i64, i64, i64, i64) =
@@ -424,18 +422,6 @@ pub(crate) async fn global_summary(
         coffee_count: row.coffee_count,
     });
 
-    // Lucky wheel spins on open tabs count like drinks.
-    let (unpaid_wheel_cents,): (i64,) = sqlx::query_as(
-        "SELECT COALESCE(SUM(w.cost_cents), 0)
-         FROM wheel_spins w
-         WHERE w.spun_at >= COALESCE(
-           (SELECT MAX(p.period_end_ts) FROM payments p WHERE p.user_id = w.user_id),
-           0
-         )",
-    )
-    .fetch_one(&state.db)
-    .await?;
-    let unpaid_total_cents = unpaid_total_cents.unwrap_or(0) + unpaid_wheel_cents;
     let (wheel_spent_cents,): (i64,) =
         sqlx::query_as("SELECT COALESCE(SUM(cost_cents), 0) FROM wheel_spins")
             .fetch_one(&state.db)
@@ -475,14 +461,21 @@ fn parse_range_days(range: Option<&str>) -> Option<i64> {
                     .parse::<i64>()
                     .ok()
                     .filter(|days| *days > 0)
+                    // Anything beyond a century is all-time anyway; this also
+                    // keeps the cutoff arithmetic from overflowing.
+                    .map(|days| days.min(MAX_RANGE_DAYS))
                     .or(Some(30))
             }
         }
     }
 }
 
+const MAX_RANGE_DAYS: i64 = 36_500;
+
 fn range_cutoff(now: i64, days: Option<i64>) -> i64 {
-    days.map(|d| now - d * 24 * 60 * 60).unwrap_or(0)
+    days.map(|d| now.saturating_sub(d.saturating_mul(24 * 60 * 60)))
+        .unwrap_or(0)
+        .max(0)
 }
 
 #[derive(sqlx::FromRow)]
@@ -1190,6 +1183,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["coffee", "eis", "espresso_pads"]
         );
+    }
+
+    #[test]
+    fn huge_ranges_are_clamped_instead_of_overflowing() {
+        assert_eq!(
+            parse_range_days(Some("9223372036854775807")),
+            Some(MAX_RANGE_DAYS)
+        );
+        assert_eq!(range_cutoff(1_000, Some(i64::MAX)), 0);
     }
 
     #[test]

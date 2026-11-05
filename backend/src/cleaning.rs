@@ -218,13 +218,17 @@ async fn record_chore(
     let mut tx = state.db.begin().await?;
     // One statement: the cooldown check and the weekly-reward check happen
     // under the same write lock as the insert, so concurrent requests can't
-    // both pass them.
+    // both pass them. A person wins at most one chore crate per week, so one
+    // early bird can't sweep the whole board.
     let inserted = sqlx::query(
         "INSERT INTO machine_cleanings (id, user_id, chore, cleaned_at, week_key, rewarded)
          SELECT ?, ?, ?, ?, ?,
                 ? AND NOT EXISTS (
                     SELECT 1 FROM machine_cleanings
                     WHERE chore = ? AND week_key = ? AND rewarded = 1
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM machine_cleanings
+                    WHERE user_id = ? AND week_key = ? AND rewarded = 1
                 )
          WHERE NOT EXISTS (
              SELECT 1 FROM machine_cleanings
@@ -238,6 +242,8 @@ async fn record_chore(
     .bind(&week)
     .bind(can_win)
     .bind(chore)
+    .bind(&week)
+    .bind(&user.id)
     .bind(&week)
     .bind(&user.id)
     .bind(chore)
@@ -449,13 +455,14 @@ mod flow_tests {
 
         let (_, clean) = log("alice", "clean").await.unwrap();
         assert!(clean.rewarded);
-        // Same person, different chore: no cooldown, separate weekly crate.
+        // Same person, different chore: no cooldown, but one crate per person
+        // and week, so this chore's crate stays up for grabs.
         let (_, grounds) = log("alice", "grounds").await.unwrap();
-        assert!(grounds.rewarded);
-        // Someone else is too late for those two but first for descaling.
-        assert!(!log("bob", "grounds").await.unwrap().1.rewarded);
+        assert!(!grounds.rewarded);
+        // Someone else takes it, and then has had their crate for the week.
+        assert!(log("bob", "grounds").await.unwrap().1.rewarded);
         let (_, descale) = log("bob", "descale").await.unwrap();
-        assert!(descale.rewarded);
+        assert!(!descale.rewarded);
         let board = &descale.board;
         assert_eq!(board.chores.len(), CHORES.len());
         assert!(
@@ -475,9 +482,10 @@ mod flow_tests {
             ApiError::NotFound
         ));
 
+        // One crate each for the week.
         assert_eq!(
             load_locker(&state, "alice").await.unwrap().sources.cleaning,
-            2
+            1
         );
         assert_eq!(
             load_locker(&state, "bob").await.unwrap().sources.cleaning,

@@ -76,6 +76,7 @@ function paymentEntry(
     expense_amount_cents: 0,
     received_payment_amount_cents: 0,
     expense_balance_cents: 0,
+    amount_due_cents: amountDueCents,
     last_paid_at: null,
     email_available: emailAvailable,
   }

@@ -135,9 +135,9 @@ pub async fn user_expense_total_cents(state: &AppState, user_id: &str) -> ApiRes
 
 pub async fn user_received_payment_total_cents(state: &AppState, user_id: &str) -> ApiResult<i64> {
     let (amount,): (Option<i64>,) = sqlx::query_as(
-        "SELECT SUM(amount_cents)
+        "SELECT SUM(amount_cents + expense_settled_cents)
          FROM payments
-         WHERE received_by_user_id = ?",
+         WHERE received_by_user_id = ? AND status = 'confirmed'",
     )
     .bind(user_id)
     .fetch_one(&state.db)
@@ -149,9 +149,11 @@ async fn all_outstanding_expense_amount_cents(state: &AppState) -> ApiResult<i64
     let (sum,): (Option<i64>,) = sqlx::query_as(
         "SELECT
            COALESCE((SELECT SUM(e.amount_cents) FROM expense_entries e), 0)
-           - COALESCE((SELECT SUM(p.amount_cents)
+           + COALESCE((SELECT SUM(p.expense_settled_cents) FROM payments p), 0)
+           - COALESCE((SELECT SUM(p.amount_cents + p.expense_settled_cents)
                        FROM payments p
-                       WHERE p.received_by_user_id IS NOT NULL), 0)",
+                       WHERE p.received_by_user_id IS NOT NULL
+                         AND p.status = 'confirmed'), 0)",
     )
     .fetch_one(&state.db)
     .await?;
@@ -195,15 +197,22 @@ async fn load_expense_summaries(state: &AppState) -> ApiResult<Vec<ExpenseSummar
                   FROM expense_entries e
                   WHERE e.user_id = u.id
                 ), 0)
-                - COALESCE((
-                  SELECT SUM(p.amount_cents)
+                + COALESCE((
+                  SELECT SUM(p.expense_settled_cents)
                   FROM payments p
-                  WHERE p.received_by_user_id = u.id
+                  WHERE p.user_id = u.id
+                ), 0)
+                - COALESCE((
+                  SELECT SUM(p.amount_cents + p.expense_settled_cents)
+                  FROM payments p
+                  WHERE p.received_by_user_id = u.id AND p.status = 'confirmed'
                 ), 0) AS outstanding_amount_cents
          FROM users u
          WHERE u.stock_manager = 1
             OR EXISTS (SELECT 1 FROM expense_entries e WHERE e.user_id = u.id)
             OR EXISTS (SELECT 1 FROM payments p WHERE p.received_by_user_id = u.id)
+            OR EXISTS (SELECT 1 FROM payments p
+                       WHERE p.user_id = u.id AND p.expense_settled_cents <> 0)
          ORDER BY outstanding_amount_cents DESC, u.display_name ASC",
     )
     .fetch_all(&state.db)
@@ -221,18 +230,34 @@ async fn load_expense_summaries(state: &AppState) -> ApiResult<Vec<ExpenseSummar
 }
 
 async fn outstanding_amount_cents(state: &AppState, user_id: &str) -> ApiResult<i64> {
+    let mut conn = state.db.acquire().await?;
+    expense_balance_cents(&mut conn, user_id).await
+}
+
+/// What the Kasse owes a user (negative: Kasse money in their hands): their
+/// expenses, plus what their own payments settled of that balance (pending
+/// ones included, as they already close the tab), minus the money they
+/// received for the Kasse.
+pub(crate) async fn expense_balance_cents(
+    conn: &mut sqlx::SqliteConnection,
+    user_id: &str,
+) -> ApiResult<i64> {
     let (amount,): (Option<i64>,) = sqlx::query_as(
         "SELECT
            COALESCE((SELECT SUM(amount_cents)
                      FROM expense_entries
                      WHERE user_id = ?), 0)
-           - COALESCE((SELECT SUM(amount_cents)
+           + COALESCE((SELECT SUM(expense_settled_cents)
                        FROM payments
-                       WHERE received_by_user_id = ?), 0)",
+                       WHERE user_id = ?), 0)
+           - COALESCE((SELECT SUM(amount_cents + expense_settled_cents)
+                       FROM payments
+                       WHERE received_by_user_id = ? AND status = 'confirmed'), 0)",
     )
     .bind(user_id)
     .bind(user_id)
-    .fetch_one(&state.db)
+    .bind(user_id)
+    .fetch_one(&mut *conn)
     .await?;
     Ok(amount.unwrap_or(0))
 }
@@ -253,9 +278,18 @@ fn normalize_description(description: &str) -> ApiResult<String> {
     Ok(description.to_string())
 }
 
+/// Far above any real coffee purchase, and small enough that sums over all
+/// entries can never overflow.
+const MAX_EXPENSE_CENTS: i64 = 1_000_000;
+
 fn validate_amount(amount_cents: i64) -> ApiResult<()> {
     if amount_cents == 0 {
         return Err(ApiError::BadRequest("amount_cents must not be zero".into()));
+    }
+    if amount_cents.abs() > MAX_EXPENSE_CENTS {
+        return Err(ApiError::BadRequest(
+            "amount_cents must be at most 10000 EUR either way".into(),
+        ));
     }
     Ok(())
 }

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   api,
   type CreateExpenseRequest,
@@ -189,18 +189,31 @@ export function usePaymentRecipients(enabled = true) {
   })
 }
 
+function invalidatePaymentData(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.payments }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.myPayment }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.expenses }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.globalStats }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.achievements }),
+  ])
+}
+
 export function useMarkPaidMutation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (body: MarkPaidRequest) => api.markPaid(body),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.payments }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.myPayment }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.expenses }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.globalStats }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.achievements }),
-      ]),
+    onSuccess: () => invalidatePaymentData(queryClient),
+  })
+}
+
+// Recipient confirms (or rejects) a payment someone marked as paid to them.
+export function useReviewPaymentMutation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      accept ? api.confirmPayment(id).then(() => undefined) : api.rejectPayment(id),
+    onSuccess: () => invalidatePaymentData(queryClient),
   })
 }
 

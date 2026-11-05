@@ -275,6 +275,14 @@ export const api = {
       method: 'POST',
       json: body as unknown as JsonBody,
     }),
+  confirmPayment: (id: string) =>
+    request<PaymentRecord>(`/api/v1/payments/${encodeURIComponent(id)}/confirm`, {
+      method: 'POST',
+    }),
+  rejectPayment: (id: string) =>
+    request<void>(`/api/v1/payments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
   sendPaymentReminder: (body: PaymentReminderRequest) =>
     request<PaymentReminderResponse>('/api/v1/payments/reminders', {
       method: 'POST',

@@ -293,13 +293,13 @@ async fn paid_drinks_between(
 
 /// Every paid drink from the start of the month containing `cutoff` onwards.
 pub async fn paid_drinks_since_month_of(
-    state: &AppState,
+    conn: &mut sqlx::SqliteConnection,
+    tz: &Tz,
     user_id: &str,
     cutoff: i64,
 ) -> ApiResult<Vec<PaidDrink>> {
-    let tz = resolve_tz(&state.config.timezone);
-    let (year, month) = local_month(cutoff, &tz);
-    let (start, _) = month_bounds(&tz, year, month)?;
+    let (year, month) = local_month(cutoff, tz);
+    let (start, _) = month_bounds(tz, year, month)?;
     sqlx::query_as::<_, PaidDrink>(
         "SELECT c.consumed_at, c.beverage_id, b.name AS beverage_name, b.price_cents
          FROM consumptions c
@@ -310,7 +310,7 @@ pub async fn paid_drinks_since_month_of(
     )
     .bind(user_id)
     .bind(start)
-    .fetch_all(&state.db)
+    .fetch_all(conn)
     .await
     .map_err(ApiError::from)
 }

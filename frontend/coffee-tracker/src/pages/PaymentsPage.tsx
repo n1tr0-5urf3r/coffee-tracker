@@ -1,4 +1,4 @@
-import { Banknote, BookOpenText, CalendarClock, CheckCircle2, Copy, ExternalLink, FerrisWheel, Mail, Plus, ReceiptText, Send, type LucideIcon } from 'lucide-react'
+import { Banknote, BookOpenText, CalendarClock, CheckCircle2, Copy, ExternalLink, FerrisWheel, Hourglass, Mail, Plus, ReceiptText, Send, XCircle, type LucideIcon } from 'lucide-react'
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Navigate, NavLink, useParams } from 'react-router-dom'
 import {
@@ -13,6 +13,7 @@ import {
   usePaymentRecipients,
   usePayments,
   usePaymentsLinks,
+  useReviewPaymentMutation,
 } from '../api/queries'
 import type {
   AutoReminderInfo,
@@ -30,7 +31,7 @@ import { PageHeader } from '../components/PageHeader'
 import { WheelStatsPanel } from '../components/WheelStatsPanel'
 import { cn } from '../lib/cn'
 import { formatUnixDate } from '../lib/date'
-import { formatEuros, paymentAmountDueCents } from '../lib/money'
+import { formatEuros, paymentAmountDueCents, paymentCashCents } from '../lib/money'
 import { useToast } from '../lib/toast'
 import { branding } from '../config/branding'
 
@@ -56,6 +57,7 @@ export function PaymentsPage() {
   const expenses = useExpenses(isStaff)
   const createExpense = useCreateExpenseMutation()
   const markPaid = useMarkPaidMutation()
+  const reviewPayment = useReviewPaymentMutation()
   const paymentReminder = usePaymentReminderMutation()
   const emailPaymentReminder = useEmailPaymentReminderMutation()
   const { pushToast } = useToast()
@@ -171,6 +173,7 @@ export function PaymentsPage() {
             expense_amount_cents: myPayment.data.expense_amount_cents,
             received_payment_amount_cents: myPayment.data.received_payment_amount_cents,
             expense_balance_cents: myPayment.data.expense_balance_cents,
+            amount_due_cents: myPayment.data.amount_due_cents,
             last_paid_at: myPayment.data.last_paid_at,
             email_available: false,
           },
@@ -186,6 +189,34 @@ export function PaymentsPage() {
 
   const isLoading = isStaff ? payments.isLoading || myPayment.isLoading : myPayment.isLoading
   const recipients = paymentRecipients.data?.entries ?? []
+  const recipientName = (userId?: string | null) =>
+    recipients.find((recipient) => recipient.user_id === userId)?.display_name ?? 'the recipient'
+  // Payments someone marked as paid to me, waiting for me to confirm the money arrived.
+  const awaitingMyConfirmation = (payments.data?.received_payments ?? []).filter(
+    (entry) => entry.status === 'pending',
+  )
+  const myPendingPayment = myPayment.data?.pending_payment ?? null
+  const reviewPendingPayment = (entry: ReceivedPaymentEntry, accept: boolean) => {
+    reviewPayment.mutate(
+      { id: entry.id, accept },
+      {
+        onSuccess: () =>
+          pushToast({
+            tone: 'success',
+            title: accept ? 'Payment confirmed' : 'Payment rejected',
+            description: accept
+              ? `${entry.payer_display_name}'s ${formatEuros(paymentCashCents(entry))} is booked.`
+              : `${entry.payer_display_name}'s tab is open again.`,
+          }),
+        onError: (error) =>
+          pushToast({
+            tone: 'error',
+            title: 'Payment not updated',
+            description: error instanceof Error ? error.message : 'Please try again.',
+          }),
+      },
+    )
+  }
   const openMarkPaidDialog = (entry: PaymentSummary) => {
     setMarkPaidDraft({ entry, recipientId: '' })
   }
@@ -198,7 +229,16 @@ export function PaymentsPage() {
         note: `Marked paid from ${branding.organizationShortName} payments`,
       },
       {
-        onSuccess: () => setMarkPaidDraft(null),
+        onSuccess: (record) => {
+          setMarkPaidDraft(null)
+          if (record.status === 'pending') {
+            pushToast({
+              tone: 'info',
+              title: 'Waiting for confirmation',
+              description: `${recipientName(record.received_by_user_id)} confirms once the money has arrived.`,
+            })
+          }
+        },
         onError: (error) => {
           pushToast({
             tone: 'error',
@@ -244,6 +284,26 @@ export function PaymentsPage() {
               })
             }
           />
+
+          {isStaff && awaitingMyConfirmation.length ? (
+            <PendingConfirmations
+              entries={awaitingMyConfirmation}
+              isPending={reviewPayment.isPending}
+              onReview={reviewPendingPayment}
+            />
+          ) : null}
+
+          {myPendingPayment ? (
+            <Card className="mb-5">
+              <div className="flex items-start gap-3">
+                <Hourglass className="mt-0.5 size-5 shrink-0 text-primary dark:text-blush" />
+                <p className="font-bold text-berry-800 dark:text-rose-100">
+                  Your payment of {formatEuros(paymentCashCents(myPendingPayment))} is waiting for{' '}
+                  {recipientName(myPendingPayment.received_by_user_id)} to confirm it arrived.
+                </p>
+              </div>
+            </Card>
+          ) : null}
 
           {isLoading ? (
             <Skeleton className="h-72" />
@@ -339,7 +399,10 @@ export function PaymentsPage() {
                                 {formatUnixDate(entry.last_paid_at, 'Never')}
                               </td>
                               <td className="rounded-r-2xl px-3 py-3 text-right">
-                                {canMarkEntry && (entry.unpaid_drink_count > 0 || entry.unpaid_amount_cents > 0) ? (
+                                {canMarkEntry &&
+                                (entry.unpaid_drink_count > 0 ||
+                                  entry.unpaid_amount_cents > 0 ||
+                                  amountDueCents > 0) ? (
                                   <Button
                                     className="whitespace-nowrap"
                                     disabled={
@@ -759,7 +822,10 @@ function PaymentEntryCard({
       </div>
 
       <div className="mt-3">
-        {canMarkEntry && (entry.unpaid_drink_count > 0 || entry.unpaid_amount_cents > 0) ? (
+        {canMarkEntry &&
+                                (entry.unpaid_drink_count > 0 ||
+                                  entry.unpaid_amount_cents > 0 ||
+                                  amountDueCents > 0) ? (
           <Button className="w-full" disabled={isPending || !hasRecipients} onClick={onMarkPaid}>
             <CheckCircle2 className="size-4" />
             Mark paid
@@ -983,6 +1049,9 @@ function MarkPaidDialog({
               {entry.display_name} settles {formatEuros(entry.unpaid_amount_cents)}.
               Amount due: {formatEuros(amountDueCents)}.
             </p>
+            <p className="mt-1 text-sm font-bold text-berry-700 dark:text-rose-100">
+              Unless you are the recipient yourself, they confirm once the money has arrived.
+            </p>
           </div>
           <Button type="button" variant="ghost" className="min-h-10 px-3" onClick={onCancel}>
             Cancel
@@ -1077,6 +1146,66 @@ function WheelShare({ cents }: { cents: number }) {
   )
 }
 
+function PendingConfirmations({
+  entries,
+  isPending,
+  onReview,
+}: {
+  entries: ReceivedPaymentEntry[]
+  isPending: boolean
+  onReview: (entry: ReceivedPaymentEntry, accept: boolean) => void
+}) {
+  return (
+    <Card className="mb-5">
+      <div className="mb-2 flex items-center gap-3">
+        <Hourglass className="size-6 text-primary dark:text-blush" />
+        <p className="font-display text-xl font-black">Waiting for your confirmation</p>
+      </div>
+      <p className="mb-4 text-sm font-bold text-berry-700 dark:text-rose-100">
+        These people marked their tab as paid to you. Confirm once the money has arrived; rejecting
+        reopens their tab.
+      </p>
+      <ul className="space-y-3">
+        {entries.map((entry) => (
+          <li
+            key={entry.id}
+            className="flex flex-col gap-3 rounded-3xl bg-berry-100 p-4 font-bold text-berry-950 sm:flex-row sm:items-center sm:justify-between dark:bg-white/10 dark:text-berry-50"
+          >
+            <div className="min-w-0">
+              <p className="break-words font-display text-lg font-black">
+                {entry.payer_display_name} · {formatEuros(paymentCashCents(entry))}
+              </p>
+              <p className="text-xs font-black uppercase text-berry-700 dark:text-rose-100">
+                {entry.drink_count} drink{entry.drink_count === 1 ? '' : 's'} ·{' '}
+                {formatUnixDate(entry.paid_at, 'Unknown')}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button disabled={isPending} onClick={() => onReview(entry, true)}>
+                <CheckCircle2 className="size-4" />
+                Confirm
+              </Button>
+              <Button variant="secondary" disabled={isPending} onClick={() => onReview(entry, false)}>
+                <XCircle className="size-4" />
+                Reject
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+function PendingPill({ status }: { status: string }) {
+  if (status !== 'pending') return null
+  return (
+    <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[0.65rem] font-black uppercase tracking-[0.12em] text-primary dark:bg-blush/15 dark:text-blush">
+      Pending
+    </span>
+  )
+}
+
 function ReceivedPaymentsOverview({
   entries,
   loading,
@@ -1111,7 +1240,8 @@ function ReceivedPaymentsOverview({
                     </p>
                   </div>
                   <p className="shrink-0 font-display text-xl font-black text-primary dark:text-blush">
-                    {formatEuros(entry.amount_cents)}
+                    {formatEuros(paymentCashCents(entry))}
+                    <PendingPill status={entry.status} />
                   </p>
                 </div>
                 <p className="mt-2 text-sm font-black text-berry-700 dark:text-rose-100">
@@ -1145,7 +1275,8 @@ function ReceivedPaymentsOverview({
                     <td className="px-3 py-3">{entry.recipient_display_name}</td>
                     <td className="px-3 py-3 text-right">{entry.drink_count}</td>
                     <td className="rounded-r-2xl px-3 py-3 text-right font-display font-black">
-                      {formatEuros(entry.amount_cents)}
+                      {formatEuros(paymentCashCents(entry))}
+                      <PendingPill status={entry.status} />
                     </td>
                   </tr>
                 ))}

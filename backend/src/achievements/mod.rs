@@ -95,6 +95,7 @@ pub async fn evaluate_after_consumption(
     consumption_id: &str,
     now: i64,
 ) -> ApiResult<Vec<AchievementEvent>> {
+    let epoch = reward_epoch(state, &user.id).await?;
     let definitions = sqlx::query_as::<_, AchievementDefinition>(
         "SELECT id, name, description, criteria_kind, threshold
          FROM achievement_definitions
@@ -109,7 +110,7 @@ pub async fn evaluate_after_consumption(
             continue;
         }
         if criteria_met(state, &user.id, consumption_id, &definition, now).await? {
-            unlocked.push(unlock(state, &user.id, definition, now).await?);
+            unlocked.extend(unlock(state, &user.id, definition, now, Some(epoch)).await?);
         }
     }
 
@@ -140,7 +141,7 @@ pub async fn evaluate_after_payment(
             continue;
         }
         if payment_criteria_met(state, user_id, &definition, paid_amount_cents).await? {
-            unlocked.push(unlock(state, user_id, definition, now).await?);
+            unlocked.extend(unlock(state, user_id, definition, now, None).await?);
         }
     }
 
@@ -155,6 +156,7 @@ pub async fn evaluate_global(
     user_id: &str,
     now: i64,
 ) -> ApiResult<Vec<AchievementEvent>> {
+    let epoch = reward_epoch(state, user_id).await?;
     let definitions = sqlx::query_as::<_, AchievementDefinition>(
         "SELECT id, name, description, criteria_kind, threshold
          FROM achievement_definitions
@@ -171,35 +173,83 @@ pub async fn evaluate_global(
             continue;
         }
         if global_criteria_met(state, user_id, &definition).await? {
-            unlocked.push(unlock(state, user_id, definition, now).await?);
+            unlocked.extend(unlock(state, user_id, definition, now, Some(epoch)).await?);
         }
     }
 
     Ok(unlocked)
 }
 
+/// Records the unlock and returns its event, or `None` when nothing was
+/// written: already unlocked, or `epoch` is set and a drink of the user was
+/// undone since it was read (the evaluation then saw stale data).
 async fn unlock(
     state: &AppState,
     user_id: &str,
     definition: AchievementDefinition,
     now: i64,
-) -> ApiResult<AchievementEvent> {
-    sqlx::query(
+    epoch: Option<i64>,
+) -> ApiResult<Option<AchievementEvent>> {
+    let inserted = sqlx::query(
         "INSERT OR IGNORE INTO achievement_unlocks
          (id, user_id, achievement_id, unlocked_at)
-         VALUES (?, ?, ?, ?)",
+         SELECT ?, ?, ?, ?
+         WHERE ? IS NULL OR (SELECT reward_epoch FROM users WHERE id = ?) = ?",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(user_id)
     .bind(&definition.id)
     .bind(now)
+    .bind(epoch)
+    .bind(user_id)
+    .bind(epoch)
     .execute(&state.db)
     .await?;
-    Ok(AchievementEvent {
+    Ok((inserted.rows_affected() > 0).then_some(AchievementEvent {
         id: definition.id,
         name: definition.name,
         description: definition.description,
-    })
+    }))
+}
+
+/// The user's reward epoch. Undoing a drink bumps it (see
+/// [`revoke_unlocks_since`]); reward writes computed from data read before
+/// the bump are skipped, so they cannot bring back what the undo revoked.
+pub async fn reward_epoch(state: &AppState, user_id: &str) -> ApiResult<i64> {
+    let row: Option<(i64,)> = sqlx::query_as("SELECT reward_epoch FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await?;
+    Ok(row.map_or(0, |(epoch,)| epoch))
+}
+
+/// Criteria that are only evaluated when a payment is made, so an unlock of
+/// theirs cannot be re-evaluated after an undo and is never revoked.
+const PAYMENT_CRITERIA: [&str; 2] = ["payment_count", "single_payment_amount"];
+
+/// Undo support: removes every unlock since `since` (the undone drink's time)
+/// that may have depended on it. The caller re-evaluates afterwards, which
+/// restores whatever the remaining data still earns.
+pub(crate) async fn revoke_unlocks_since(
+    conn: &mut sqlx::SqliteConnection,
+    user_id: &str,
+    since: i64,
+) -> ApiResult<()> {
+    sqlx::query(
+        "DELETE FROM achievement_unlocks
+         WHERE user_id = ? AND unlocked_at >= ?
+           AND achievement_id IN (
+               SELECT id FROM achievement_definitions
+               WHERE active = 1 AND criteria_kind NOT IN (?, ?)
+           )",
+    )
+    .bind(user_id)
+    .bind(since)
+    .bind(PAYMENT_CRITERIA[0])
+    .bind(PAYMENT_CRITERIA[1])
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 const GLOBAL_CRITERIA: [&str; 9] = [
@@ -261,7 +311,9 @@ async fn global_criteria_met(
             "machine_cleanings" => {
                 count(
                     state,
-                    "SELECT COUNT(*) FROM machine_cleanings WHERE user_id = ? AND chore = 'clean'",
+                    // Days, not entries: logging twice a day doesn't count double.
+                    "SELECT COUNT(DISTINCT date(cleaned_at, 'unixepoch'))
+                     FROM machine_cleanings WHERE user_id = ? AND chore = 'clean'",
                     user_id,
                 )
                 .await?
@@ -277,7 +329,8 @@ async fn global_criteria_met(
             "chores_done" => {
                 count(
                     state,
-                    "SELECT COUNT(*) FROM machine_cleanings WHERE user_id = ?",
+                    "SELECT COUNT(DISTINCT chore || date(cleaned_at, 'unixepoch'))
+                     FROM machine_cleanings WHERE user_id = ?",
                     user_id,
                 )
                 .await?
@@ -658,34 +711,25 @@ async fn caffeine_level(state: &AppState, user_id: &str, now: i64) -> ApiResult<
         .sum())
 }
 
+/// The open tab, with the same stamp-card discount the payments page applies.
 async fn unpaid_amount_cents(state: &AppState, user_id: &str) -> ApiResult<i64> {
-    let (max_period_end,): (Option<i64>,) =
-        sqlx::query_as("SELECT MAX(period_end_ts) FROM payments WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await?;
-    let (amount,): (Option<i64>,) = sqlx::query_as(
-        "SELECT SUM(b.price_cents)
-         FROM consumptions c
-         JOIN beverages b ON b.id = c.beverage_id
-         WHERE c.user_id = ? AND c.consumed_at >= ?
-           AND NOT EXISTS (SELECT 1 FROM wheel_spins w WHERE w.redeemed_consumption_id = c.id)",
-    )
-    .bind(user_id)
-    .bind(max_period_end.unwrap_or(0))
-    .fetch_one(&state.db)
-    .await?;
-    let wheel =
-        wheel::unpaid_wheel_cents(state, user_id, max_period_end.unwrap_or(0), i64::MAX).await?;
-    Ok(amount.unwrap_or(0) + wheel)
+    crate::payments::open_tab_cents(state, user_id).await
 }
 
+/// Distinct local months with a confirmed payment, so splitting one tab into
+/// many small payments does not count as settling many tabs.
 async fn payment_count(state: &AppState, user_id: &str) -> ApiResult<i64> {
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM payments WHERE user_id = ?")
-        .bind(user_id)
-        .fetch_one(&state.db)
-        .await?;
-    Ok(count)
+    let paid_at: Vec<(i64,)> =
+        sqlx::query_as("SELECT paid_at FROM payments WHERE user_id = ? AND status = 'confirmed'")
+            .bind(user_id)
+            .fetch_all(&state.db)
+            .await?;
+    let tz = resolve_tz(&state.config.timezone);
+    let months: HashSet<(i32, u32)> = paid_at
+        .into_iter()
+        .map(|(at,)| loyalty::local_month(at, &tz))
+        .collect();
+    Ok(months.len() as i64)
 }
 
 #[derive(sqlx::FromRow)]
@@ -821,6 +865,33 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(unlocks[0].id, "debt");
+    }
+
+    #[tokio::test]
+    async fn payment_count_counts_months_not_split_payments() {
+        let state = state().await;
+        insert_definition(&state, "third_payment", "payment_count", 3).await;
+        let day = 24 * 3600;
+        // Five payments within one month, then one in the next.
+        for (i, at) in [1, 2, 3, 4, 5, 40 * day].into_iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO payments
+                 (id, user_id, amount_cents, drink_count, period_end_ts, paid_at, created_at)
+                 VALUES (?, 'user', 100, 2, ?, ?, ?)",
+            )
+            .bind(format!("payment-{i}"))
+            .bind(at)
+            .bind(at)
+            .bind(at)
+            .execute(&state.db)
+            .await
+            .unwrap();
+        }
+        assert_eq!(payment_count(&state, "user").await.unwrap(), 2);
+        let unlocks = evaluate_after_payment(&state, "user", 100, 40 * day)
+            .await
+            .unwrap();
+        assert!(unlocks.is_empty());
     }
 
     #[tokio::test]

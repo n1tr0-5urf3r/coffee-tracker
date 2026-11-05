@@ -242,18 +242,7 @@ pub(crate) async fn gitlab_callback(
         })?;
     let gitlab_user = gitlab_json::<GitLabUser>(user_response, "user profile").await?;
 
-    let groups_response = state
-        .http
-        .get(format!("{}/api/v4/groups", state.config.gitlab_base_url))
-        .query(&[("membership", "true"), ("per_page", "100")])
-        .bearer_auth(&token.access_token)
-        .send()
-        .await
-        .map_err(|err| {
-            tracing::warn!(?err, "GitLab groups request failed");
-            ApiError::Upstream
-        })?;
-    let groups = gitlab_json::<Vec<GitLabGroup>>(groups_response, "group membership").await?;
+    let groups = fetch_gitlab_groups(&state, &token.access_token).await?;
 
     if !gitlab_has_allowed_group(&groups, &state.config.auth_allowed_groups) {
         return Err(ApiError::Forbidden);
@@ -433,12 +422,7 @@ pub(crate) async fn guest_login(
     cookies: Cookies,
     Json(input): Json<GuestLoginRequest>,
 ) -> ApiResult<(StatusCode, Json<MeResponse>)> {
-    let display_name = input.display_name.trim();
-    if display_name.len() < 2 || display_name.len() > 80 {
-        return Err(ApiError::BadRequest(
-            "display_name must be between 2 and 80 characters".into(),
-        ));
-    }
+    let display_name = validate_display_name(&input.display_name)?;
 
     let recovery_code = input
         .recovery_code
@@ -580,6 +564,27 @@ async fn upsert_guest_user(
     create_guest_user(state, display_name, now).await
 }
 
+/// Trimmed display name: 2 to 80 characters, no control characters (which
+/// could forge extra lines in chat notifications).
+fn validate_display_name(display_name: &str) -> ApiResult<&str> {
+    let trimmed = display_name.trim();
+    if trimmed.len() < 2 || trimmed.len() > 80 {
+        return Err(ApiError::BadRequest(
+            "display_name must be between 2 and 80 characters".into(),
+        ));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(ApiError::BadRequest(
+            "display_name must not contain control characters".into(),
+        ));
+    }
+    Ok(trimmed)
+}
+
+/// New guest accounts allowed per hour across everyone. Returning guests
+/// (cookie or recovery code) are never limited.
+const NEW_GUESTS_PER_HOUR: i64 = 30;
+
 async fn create_guest_user(
     state: &AppState,
     display_name: &str,
@@ -589,19 +594,29 @@ async fn create_guest_user(
     let guest_token = random_token();
     let recovery_code = random_guest_recovery_code();
     let recovery_hash = hash_guest_recovery(&state.config.session_secret, &recovery_code);
-    sqlx::query(
+    // The limit check and the insert are one statement, so a burst of
+    // parallel requests cannot overshoot it.
+    let inserted = sqlx::query(
         "INSERT INTO users
          (id, user_type, gitlab_id, guest_recovery_hash, display_name, leaderboard_opt_in,
           achievement_sharing_opt_out, mattermost_opt_in, stock_manager, created_at, updated_at)
-            VALUES (?, 'guest', NULL, ?, ?, 0, 0, 0, 0, ?, ?)",
+         SELECT ?, 'guest', NULL, ?, ?, 0, 0, 0, 0, ?, ?
+         WHERE (SELECT COUNT(*) FROM users WHERE user_type = 'guest' AND created_at > ?) < ?",
     )
     .bind(&user_id)
     .bind(&recovery_hash)
     .bind(display_name)
     .bind(now)
     .bind(now)
+    .bind(now - 3600)
+    .bind(NEW_GUESTS_PER_HOUR)
     .execute(&state.db)
     .await?;
+    if inserted.rows_affected() == 0 {
+        return Err(ApiError::TooManyRequests(
+            "too many new guest accounts right now; please try again later".into(),
+        ));
+    }
     insert_guest_identity(state, &user_id, &guest_token, now).await?;
 
     Ok(GuestLoginResult {
@@ -761,12 +776,7 @@ pub(crate) async fn update_settings(
     Json(input): Json<UpdateSettingsRequest>,
 ) -> ApiResult<Json<MeResponse>> {
     if let Some(display_name) = &input.display_name {
-        let trimmed = display_name.trim();
-        if trimmed.len() < 2 || trimmed.len() > 80 {
-            return Err(ApiError::BadRequest(
-                "display_name must be between 2 and 80 characters".into(),
-            ));
-        }
+        let trimmed = validate_display_name(display_name)?;
         sqlx::query("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?")
             .bind(trimmed)
             .bind(now_ts())
@@ -884,6 +894,11 @@ pub async fn load_user_by_id(state: &AppState, user_id: &str) -> ApiResult<Curre
     Ok(row.into())
 }
 
+/// Group membership (and with it access and the staff role) is only read at
+/// OAuth login, so provider sessions must be renewed regularly for a removal
+/// from a group to take effect.
+const PROVIDER_SESSION_MAX_AGE_SECS: i64 = 30 * 24 * 60 * 60;
+
 async fn load_user_from_session(state: &AppState, token: &str) -> ApiResult<CurrentUser> {
     let hash = hash_session(&state.config.session_secret, token);
     let now = now_ts();
@@ -892,10 +907,12 @@ async fn load_user_from_session(state: &AppState, token: &str) -> ApiResult<Curr
          u.achievement_sharing_opt_out, u.mattermost_opt_in, u.stock_manager, u.paypal_link
             FROM sessions s
             JOIN users u ON u.id = s.user_id
-            WHERE s.id_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?",
+            WHERE s.id_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?
+              AND (u.user_type = 'guest' OR s.created_at > ?)",
     )
     .bind(hash)
     .bind(now)
+    .bind(now - PROVIDER_SESSION_MAX_AGE_SECS)
     .fetch_optional(&state.db)
     .await?
     .ok_or(ApiError::Unauthorized)?;
@@ -1129,6 +1146,38 @@ fn gitlab_email_from_emails(emails: &[GitLabEmail]) -> Option<String> {
         .find(|email| email.confirmed_at.is_some())
         .or_else(|| emails.first())
         .and_then(|email| normalize_email(&email.email))
+}
+
+/// Every group the user is a member of, following GitLab's pagination (one
+/// page holds at most 100 groups).
+async fn fetch_gitlab_groups(state: &AppState, access_token: &str) -> ApiResult<Vec<GitLabGroup>> {
+    const PER_PAGE: usize = 100;
+    const MAX_PAGES: usize = 50;
+    let mut groups = Vec::new();
+    for page in 1..=MAX_PAGES {
+        let response = state
+            .http
+            .get(format!("{}/api/v4/groups", state.config.gitlab_base_url))
+            .query(&[
+                ("membership", "true".to_string()),
+                ("per_page", PER_PAGE.to_string()),
+                ("page", page.to_string()),
+            ])
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|err| {
+                tracing::warn!(?err, "GitLab groups request failed");
+                ApiError::Upstream
+            })?;
+        let batch = gitlab_json::<Vec<GitLabGroup>>(response, "group membership").await?;
+        let done = batch.len() < PER_PAGE;
+        groups.extend(batch);
+        if done {
+            break;
+        }
+    }
+    Ok(groups)
 }
 
 async fn gitlab_json<T: DeserializeOwned>(
@@ -1878,6 +1927,67 @@ mod tests {
         let user = load_user_by_id(&state, &user_id).await.unwrap();
         assert_eq!(user.user_type, "member");
         assert_eq!(user.display_name, "Shared Name");
+    }
+
+    #[tokio::test]
+    async fn new_guest_accounts_are_rate_limited_but_returning_guests_are_not() {
+        let state = state().await;
+        let first = upsert_guest_user(&state, "Early Bird", None, None)
+            .await
+            .unwrap();
+        for i in 1..NEW_GUESTS_PER_HOUR {
+            upsert_guest_user(&state, &format!("Guest {i}"), None, None)
+                .await
+                .unwrap();
+        }
+        assert!(matches!(
+            upsert_guest_user(&state, "One Too Many", None, None).await,
+            Err(ApiError::TooManyRequests(_))
+        ));
+        let returning = upsert_guest_user(&state, "Early Bird", Some(&first.guest_token), None)
+            .await
+            .unwrap();
+        assert_eq!(returning.user_id, first.user_id);
+    }
+
+    #[test]
+    fn display_names_reject_control_characters() {
+        assert_eq!(validate_display_name("  Ada  ").unwrap(), "Ada");
+        assert!(validate_display_name("Ada\nLovelace").is_err());
+        assert!(validate_display_name("x").is_err());
+    }
+
+    #[tokio::test]
+    async fn provider_sessions_must_be_renewed_after_30_days() {
+        let state = state().await;
+        sqlx::query(
+            "INSERT INTO users
+             (id, user_type, gitlab_id, display_name, leaderboard_opt_in,
+              achievement_sharing_opt_out, mattermost_opt_in, stock_manager, created_at, updated_at)
+             VALUES ('staff', 'member', 1, 'Staff', 1, 0, 0, 1, 1, 1),
+                    ('member', 'member', 2, 'Member', 1, 0, 0, 0, 1, 1)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        let staff = create_session(&state, "staff").await.unwrap();
+        let member = create_session(&state, "member").await.unwrap();
+        let age = |days: i64| {
+            sqlx::query("UPDATE sessions SET created_at = created_at - ?")
+                .bind(days * 24 * 60 * 60)
+                .execute(&state.db)
+        };
+
+        age(29).await.unwrap();
+        assert!(load_user_from_session(&state, &staff).await.is_ok());
+        assert!(load_user_from_session(&state, &member).await.is_ok());
+        age(2).await.unwrap();
+        for token in [&staff, &member] {
+            assert!(matches!(
+                load_user_from_session(&state, token).await,
+                Err(ApiError::Unauthorized)
+            ));
+        }
     }
 
     async fn state() -> AppState {

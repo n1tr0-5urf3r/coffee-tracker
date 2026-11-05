@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -17,7 +17,8 @@ use crate::{
     db::now_ts,
     error::{ApiError, ApiResult},
     expenses::{
-        user_expense_balance_cents, user_expense_total_cents, user_received_payment_total_cents,
+        expense_balance_cents, user_expense_balance_cents, user_expense_total_cents,
+        user_received_payment_total_cents,
     },
     loyalty::{discounted_amount_cents, paid_drinks_since_month_of},
     notifications::{
@@ -35,6 +36,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/payments", get(list_payments).post(mark_paid))
         .route("/payments/me", get(my_payments))
+        .route("/payments/{id}/confirm", post(confirm_payment))
+        .route("/payments/{id}", delete(reject_payment))
         .route("/payments/config", get(payment_config))
         .route("/payments/links", get(list_paypal_links))
         .route("/payments/recipients", get(list_payment_recipients))
@@ -137,6 +140,9 @@ pub struct PaymentSummary {
     pub expense_amount_cents: i64,
     pub received_payment_amount_cents: i64,
     pub expense_balance_cents: i64,
+    /// What the user has to pay now: the tab minus the expense balance (see
+    /// `payable_balance_cents`).
+    pub amount_due_cents: i64,
     pub last_paid_at: Option<i64>,
     pub email_available: bool,
 }
@@ -159,7 +165,12 @@ pub struct MyPaymentResponse {
     pub expense_amount_cents: i64,
     pub received_payment_amount_cents: i64,
     pub expense_balance_cents: i64,
+    /// What the user has to pay now: the tab minus the expense balance (see
+    /// `payable_balance_cents`).
+    pub amount_due_cents: i64,
     pub last_paid_at: Option<i64>,
+    /// The user's payment that still awaits the recipient's confirmation.
+    pub pending_payment: Option<PaymentRecord>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -210,11 +221,18 @@ pub struct PaymentRecord {
     pub id: String,
     pub user_id: String,
     pub received_by_user_id: Option<String>,
+    /// Coffee tab (drinks and wheel spins) this payment settles.
     pub amount_cents: i64,
+    /// Expense balance the payment settled on top of the tab: positive when
+    /// the payer handed back Kasse money, negative when the tab was offset
+    /// against what the Kasse owed them. The recipient got the sum of both.
+    pub expense_settled_cents: i64,
     pub drink_count: i64,
     pub period_end_ts: i64,
     pub note: Option<String>,
     pub paid_at: i64,
+    /// `pending` until the recipient confirms they got the money, else `confirmed`.
+    pub status: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -224,10 +242,17 @@ pub struct ReceivedPaymentEntry {
     pub payer_display_name: String,
     pub recipient_user_id: String,
     pub recipient_display_name: String,
+    /// Coffee tab (drinks and wheel spins) this payment settles.
     pub amount_cents: i64,
+    /// Expense balance the payment settled on top of the tab: positive when
+    /// the payer handed back Kasse money, negative when the tab was offset
+    /// against what the Kasse owed them. The recipient got the sum of both.
+    pub expense_settled_cents: i64,
     pub drink_count: i64,
     pub paid_at: i64,
     pub note: Option<String>,
+    /// `pending` until the recipient confirms it, else `confirmed`.
+    pub status: String,
 }
 
 #[utoipa::path(get, path = "/api/v1/payments", responses((status = 200, body = PaymentsResponse)))]
@@ -250,6 +275,12 @@ pub(crate) async fn list_payments(
         let received_payment_amount_cents =
             user_received_payment_total_cents(&state, &user.id).await?;
         let expense_balance_cents = user_expense_balance_cents(&state, &user.id).await?;
+        let amount_due_cents = amount_due_for(
+            &state,
+            &user.id,
+            totals.unpaid_amount_cents,
+            expense_balance_cents,
+        );
         entries.push(PaymentSummary {
             user_id: user.id,
             display_name: user.display_name,
@@ -262,17 +293,15 @@ pub(crate) async fn list_payments(
             expense_amount_cents,
             received_payment_amount_cents,
             expense_balance_cents,
+            amount_due_cents,
             last_paid_at: totals.last_paid_at,
             email_available: email_address_available(user.email.as_deref()),
         });
     }
 
     entries.sort_by(|a, b| {
-        amount_due_cents(b.unpaid_amount_cents, b.expense_balance_cents)
-            .cmp(&amount_due_cents(
-                a.unpaid_amount_cents,
-                a.expense_balance_cents,
-            ))
+        b.amount_due_cents
+            .cmp(&a.amount_due_cents)
             .then_with(|| b.unpaid_amount_cents.cmp(&a.unpaid_amount_cents))
             .then_with(|| a.display_name.cmp(&b.display_name))
     });
@@ -294,6 +323,13 @@ pub(crate) async fn my_payments(
     let expense_amount_cents = user_expense_total_cents(&state, &user.id).await?;
     let received_payment_amount_cents = user_received_payment_total_cents(&state, &user.id).await?;
     let expense_balance_cents = user_expense_balance_cents(&state, &user.id).await?;
+    let pending_payment = pending_payment_of(&state, &user.id).await?;
+    let amount_due_cents = amount_due_for(
+        &state,
+        &user.id,
+        totals.unpaid_amount_cents,
+        expense_balance_cents,
+    );
     Ok(Json(MyPaymentResponse {
         user_id: user.id,
         unpaid_amount_cents: totals.unpaid_amount_cents,
@@ -304,7 +340,9 @@ pub(crate) async fn my_payments(
         expense_amount_cents,
         received_payment_amount_cents,
         expense_balance_cents,
+        amount_due_cents,
         last_paid_at: totals.last_paid_at,
+        pending_payment,
     }))
 }
 
@@ -458,6 +496,31 @@ pub(crate) async fn settle_tab(
     let target_user = load_current_user(&state, &input.user_id).await?;
     let recipient = load_current_user(&state, &input.received_by_user_id).await?;
     ensure_payment_recipient(&recipient)?;
+    // Only the recipient can vouch for money they received; anyone else's
+    // claim waits for their confirmation.
+    let status = if user.id == input.received_by_user_id {
+        "confirmed"
+    } else {
+        "pending"
+    };
+
+    // Cheap checks before the write lock, so empty or blocked requests can't
+    // queue up on it. Both are repeated under the lock.
+    if pending_payment_of(&state, &input.user_id).await?.is_some() {
+        return Err(pending_payment_conflict());
+    }
+    let preview = user_totals(&state, &input.user_id).await?;
+    let preview_settled = expense_settlement_cents(
+        preview.unpaid_amount_cents,
+        settleable_balance_cents(
+            &state,
+            &input,
+            user_expense_balance_cents(&state, &input.user_id).await?,
+        ),
+    );
+    if nothing_to_pay(&preview, preview_settled) {
+        return Err(nothing_to_pay_error());
+    }
 
     // Take the write lock before reading the tab: no drink, spin or payment
     // can commit until this payment is stored, so the totals are final. One
@@ -470,43 +533,60 @@ pub(crate) async fn settle_tab(
         .execute(&mut *tx)
         .await?;
     let now = clock();
-    let totals = user_totals_until(&state, &input.user_id, now).await?;
-    if totals.unpaid_drink_count == 0 && totals.unpaid_amount_cents == 0 {
-        return Err(ApiError::BadRequest(
-            "user has no unpaid consumptions".into(),
-        ));
+    // Read on the transaction's own connection: waiting for a second pool
+    // connection while holding the lock could exhaust the pool.
+    let tz = resolve_tz(&state.config.timezone);
+    let totals = user_totals_until(&mut tx, &tz, &input.user_id, now).await?;
+    // The payer pays the amount due (tab minus expense balance), so the
+    // payment settles that part of their expense balance too.
+    let expense_settled_cents = expense_settlement_cents(
+        totals.unpaid_amount_cents,
+        settleable_balance_cents(
+            &state,
+            &input,
+            expense_balance_cents(&mut tx, &input.user_id).await?,
+        ),
+    );
+    if nothing_to_pay(&totals, expense_settled_cents) {
+        return Err(nothing_to_pay_error());
+    }
+    let (pending,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM payments WHERE user_id = ? AND status = 'pending')",
+    )
+    .bind(&input.user_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if pending {
+        return Err(pending_payment_conflict());
     }
 
     let id = Uuid::new_v4().to_string();
     let period_end_ts = now;
     sqlx::query(
         "INSERT INTO payments
-         (id, user_id, received_by_user_id, amount_cents, drink_count, period_end_ts,
-          note, paid_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, user_id, received_by_user_id, amount_cents, expense_settled_cents,
+          drink_count, period_end_ts, note, paid_at, created_at, status, confirmed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&input.user_id)
     .bind(&input.received_by_user_id)
     .bind(totals.unpaid_amount_cents)
+    .bind(expense_settled_cents)
     .bind(totals.unpaid_drink_count)
     .bind(period_end_ts)
     .bind(input.note.as_ref())
     .bind(now)
     .bind(now)
+    .bind(status)
+    .bind((status == "confirmed").then_some(now))
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
 
-    notify_payment_marked_paid(
-        &state,
-        &target_user.display_name,
-        totals.unpaid_amount_cents,
-    )
-    .await;
-    let unlocks =
-        evaluate_after_payment(&state, &input.user_id, totals.unpaid_amount_cents, now).await?;
-    notify_unlocks(&state, &target_user, &unlocks).await;
+    if status == "confirmed" {
+        after_confirmed_payment(&state, &target_user, totals.unpaid_amount_cents, now).await?;
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -515,12 +595,226 @@ pub(crate) async fn settle_tab(
             user_id: input.user_id,
             received_by_user_id: Some(input.received_by_user_id),
             amount_cents: totals.unpaid_amount_cents,
+            expense_settled_cents,
             drink_count: totals.unpaid_drink_count,
             period_end_ts,
             note: input.note,
             paid_at: now,
+            status: status.into(),
         }),
     ))
+}
+
+/// Announces a confirmed payment and evaluates its achievements.
+async fn after_confirmed_payment(
+    state: &AppState,
+    payer: &CurrentUser,
+    amount_cents: i64,
+    now: i64,
+) -> ApiResult<()> {
+    notify_payment_marked_paid(state, &payer.display_name, amount_cents).await;
+    let unlocks = evaluate_after_payment(state, &payer.id, amount_cents, now).await?;
+    notify_unlocks(state, payer, &unlocks).await;
+    Ok(())
+}
+
+/// The Kasse: the staff member whose payment link the reminders point to.
+/// The money in their hands is the Kasse itself, not a debt.
+fn kasse_user_id(state: &AppState) -> Option<&str> {
+    state
+        .config
+        .auto_payment_reminder
+        .as_ref()
+        .map(|reminder| reminder.payment_link_user_id.as_str())
+}
+
+/// The part of a user's expense balance that counts towards their amount
+/// due. Kasse money a staff member holds (a negative balance) is due to the
+/// Kasse, except for the Kasse holder, who is already holding it there.
+fn payable_balance_cents(state: &AppState, user_id: &str, expense_balance_cents: i64) -> i64 {
+    if kasse_user_id(state) == Some(user_id) {
+        expense_balance_cents.max(0)
+    } else {
+        expense_balance_cents
+    }
+}
+
+fn amount_due_for(
+    state: &AppState,
+    user_id: &str,
+    unpaid_amount_cents: i64,
+    expense_balance_cents: i64,
+) -> i64 {
+    amount_due_cents(
+        unpaid_amount_cents,
+        payable_balance_cents(state, user_id, expense_balance_cents),
+    )
+}
+
+/// The expense balance a payment can settle. Paying yourself moves no Kasse
+/// money out of your hands, so it only covers the tab.
+fn settleable_balance_cents(
+    state: &AppState,
+    input: &MarkPaidRequest,
+    expense_balance_cents: i64,
+) -> i64 {
+    if input.user_id == input.received_by_user_id {
+        expense_balance_cents.max(0)
+    } else {
+        payable_balance_cents(state, &input.user_id, expense_balance_cents)
+    }
+}
+
+/// The part of the amount due that settles the expense balance: the payer
+/// pays `amount_due_cents(tab, balance)`, the tab is the rest.
+fn expense_settlement_cents(unpaid_amount_cents: i64, expense_balance_cents: i64) -> i64 {
+    amount_due_cents(unpaid_amount_cents, expense_balance_cents) - unpaid_amount_cents
+}
+
+fn nothing_to_pay(totals: &UserTotals, expense_settled_cents: i64) -> bool {
+    totals.unpaid_drink_count == 0 && totals.unpaid_amount_cents == 0 && expense_settled_cents == 0
+}
+
+fn nothing_to_pay_error() -> ApiError {
+    ApiError::BadRequest("user has nothing to pay".into())
+}
+
+fn pending_payment_conflict() -> ApiError {
+    ApiError::Conflict("a payment of this user is still awaiting confirmation".into())
+}
+
+#[derive(sqlx::FromRow)]
+struct PaymentRow {
+    id: String,
+    user_id: String,
+    received_by_user_id: Option<String>,
+    amount_cents: i64,
+    expense_settled_cents: i64,
+    drink_count: i64,
+    period_end_ts: i64,
+    note: Option<String>,
+    paid_at: i64,
+    status: String,
+}
+
+impl From<PaymentRow> for PaymentRecord {
+    fn from(row: PaymentRow) -> Self {
+        PaymentRecord {
+            id: row.id,
+            user_id: row.user_id,
+            received_by_user_id: row.received_by_user_id,
+            amount_cents: row.amount_cents,
+            expense_settled_cents: row.expense_settled_cents,
+            drink_count: row.drink_count,
+            period_end_ts: row.period_end_ts,
+            note: row.note,
+            paid_at: row.paid_at,
+            status: row.status,
+        }
+    }
+}
+
+async fn pending_payment_of(state: &AppState, user_id: &str) -> ApiResult<Option<PaymentRecord>> {
+    let row: Option<PaymentRow> = sqlx::query_as(
+        "SELECT id, user_id, received_by_user_id, amount_cents, expense_settled_cents,
+                drink_count, period_end_ts, note, paid_at, status
+         FROM payments WHERE user_id = ? AND status = 'pending'",
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+    Ok(row.map(PaymentRecord::from))
+}
+
+/// Loads a payment the current user may confirm or reject: a pending one
+/// that names them as the recipient.
+async fn pending_payment_for_recipient(
+    state: &AppState,
+    user: &CurrentUser,
+    id: &str,
+) -> ApiResult<PaymentRow> {
+    let row: Option<PaymentRow> = sqlx::query_as(
+        "SELECT id, user_id, received_by_user_id, amount_cents, expense_settled_cents,
+                drink_count, period_end_ts, note, paid_at, status
+         FROM payments WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?;
+    let row = row.ok_or(ApiError::NotFound)?;
+    if row.received_by_user_id.as_deref() != Some(user.id.as_str()) {
+        return Err(ApiError::Forbidden);
+    }
+    if row.status != "pending" {
+        return Err(ApiError::Conflict("payment is already confirmed".into()));
+    }
+    Ok(row)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/payments/{id}/confirm",
+    params(("id" = String, Path)),
+    responses(
+        (status = 200, body = PaymentRecord),
+        (status = 403, description = "Only the recipient can confirm"),
+        (status = 409, description = "Already confirmed")
+    )
+)]
+pub(crate) async fn confirm_payment(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> ApiResult<Json<PaymentRecord>> {
+    let row = pending_payment_for_recipient(&state, &user, &id).await?;
+    let now = now_ts();
+    let updated = sqlx::query(
+        "UPDATE payments SET status = 'confirmed', confirmed_at = ?
+         WHERE id = ? AND status = 'pending' AND received_by_user_id = ?",
+    )
+    .bind(now)
+    .bind(&id)
+    .bind(&user.id)
+    .execute(&state.db)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::Conflict("payment is no longer pending".into()));
+    }
+    let payer = load_current_user(&state, &row.user_id).await?;
+    after_confirmed_payment(&state, &payer, row.amount_cents, now).await?;
+    Ok(Json(PaymentRecord {
+        status: "confirmed".into(),
+        ..row.into()
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/payments/{id}",
+    params(("id" = String, Path)),
+    responses(
+        (status = 204, description = "Pending payment rejected; the tab is open again"),
+        (status = 403, description = "Only the recipient can reject"),
+        (status = 409, description = "Confirmed payments cannot be rejected")
+    )
+)]
+pub(crate) async fn reject_payment(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Path(id): Path<String>,
+) -> ApiResult<StatusCode> {
+    pending_payment_for_recipient(&state, &user, &id).await?;
+    let deleted = sqlx::query(
+        "DELETE FROM payments WHERE id = ? AND status = 'pending' AND received_by_user_id = ?",
+    )
+    .bind(&id)
+    .bind(&user.id)
+    .execute(&state.db)
+    .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(ApiError::Conflict("payment is no longer pending".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn ensure_stock_manager(user: &CurrentUser) -> ApiResult<()> {
@@ -584,9 +878,11 @@ async fn received_payment_entries(
                 p.received_by_user_id AS recipient_user_id,
                 recipient.display_name AS recipient_display_name,
                 p.amount_cents,
+                p.expense_settled_cents,
                 p.drink_count,
                 p.paid_at,
-                p.note
+                p.note,
+                p.status
          FROM payments p
          JOIN users payer ON payer.id = p.user_id
          JOIN users recipient ON recipient.id = p.received_by_user_id
@@ -605,9 +901,11 @@ async fn received_payment_entries(
             recipient_user_id: row.recipient_user_id,
             recipient_display_name: row.recipient_display_name,
             amount_cents: row.amount_cents,
+            expense_settled_cents: row.expense_settled_cents,
             drink_count: row.drink_count,
             paid_at: row.paid_at,
             note: row.note,
+            status: row.status,
         })
     })
     .collect()
@@ -650,7 +948,12 @@ async fn payment_reminder_entries(
     for user in users {
         let totals = user_totals(state, &user.id).await?;
         let expense_balance_cents = user_expense_balance_cents(state, &user.id).await?;
-        let amount_due = amount_due_cents(totals.unpaid_amount_cents, expense_balance_cents);
+        let amount_due = amount_due_for(
+            state,
+            &user.id,
+            totals.unpaid_amount_cents,
+            expense_balance_cents,
+        );
         if amount_due > 0 {
             entries.push(PaymentReminderEntry {
                 user_id: user.id,
@@ -724,7 +1027,7 @@ fn payment_reminder_message(entries: &[PaymentReminderEntry]) -> String {
     for entry in entries {
         message.push_str(&format!(
             "\n- {}: {} - {}",
-            entry.display_name,
+            crate::notifications::chat_safe(&entry.display_name),
             format_euros(entry.amount_cents),
             entry.payment_link
         ));
@@ -766,15 +1069,28 @@ struct UserTotals {
 }
 
 async fn user_totals(state: &AppState, user_id: &str) -> ApiResult<UserTotals> {
-    user_totals_until(state, user_id, i64::MAX).await
+    let mut conn = state.db.acquire().await?;
+    let tz = resolve_tz(&state.config.timezone);
+    user_totals_until(&mut conn, &tz, user_id, i64::MAX).await
+}
+
+/// What the user owes right now: the open tab, stamp-card discount included.
+pub(crate) async fn open_tab_cents(state: &AppState, user_id: &str) -> ApiResult<i64> {
+    Ok(user_totals(state, user_id).await?.unpaid_amount_cents)
 }
 
 /// Totals of the open tab, counting only drinks and spins before `until`.
-async fn user_totals_until(state: &AppState, user_id: &str, until: i64) -> ApiResult<UserTotals> {
+/// A pending payment already closes the tab it covers.
+async fn user_totals_until(
+    conn: &mut sqlx::SqliteConnection,
+    tz: &chrono_tz::Tz,
+    user_id: &str,
+    until: i64,
+) -> ApiResult<UserTotals> {
     let (max_period_end, last_paid_at): (Option<i64>, Option<i64>) =
         sqlx::query_as("SELECT MAX(period_end_ts), MAX(paid_at) FROM payments WHERE user_id = ?")
             .bind(user_id)
-            .fetch_one(&state.db)
+            .fetch_one(&mut *conn)
             .await?;
     let cutoff = max_period_end.unwrap_or(0);
 
@@ -787,23 +1103,22 @@ async fn user_totals_until(state: &AppState, user_id: &str, until: i64) -> ApiRe
     .bind(user_id)
     .bind(cutoff)
     .bind(until)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *conn)
     .await?;
 
     // Stamp cards run per calendar month, so positions are counted from the 1st
     // of the month the open tab starts in - not from the payment cutoff itself.
-    let tz = resolve_tz(&state.config.timezone);
-    let mut paid_drinks = paid_drinks_since_month_of(state, user_id, cutoff).await?;
+    let mut paid_drinks = paid_drinks_since_month_of(&mut *conn, tz, user_id, cutoff).await?;
     paid_drinks.retain(|drink| drink.consumed_at < until);
-    let unpaid_wheel_cents = wheel::unpaid_wheel_cents(state, user_id, cutoff, until).await?;
+    let unpaid_wheel_cents = wheel::unpaid_wheel_cents(&mut *conn, user_id, cutoff, until).await?;
     let unpaid_amount_cents =
-        discounted_amount_cents(&paid_drinks, cutoff, &tz) + unpaid_wheel_cents;
+        discounted_amount_cents(&paid_drinks, cutoff, tz) + unpaid_wheel_cents;
 
     let paid: (Option<i64>, Option<i64>) = sqlx::query_as(
         "SELECT SUM(amount_cents), SUM(drink_count) FROM payments WHERE user_id = ?",
     )
     .bind(user_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *conn)
     .await?;
 
     Ok(UserTotals {
@@ -832,9 +1147,11 @@ struct ReceivedPaymentRow {
     recipient_user_id: String,
     recipient_display_name: String,
     amount_cents: i64,
+    expense_settled_cents: i64,
     drink_count: i64,
     paid_at: i64,
     note: Option<String>,
+    status: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -862,6 +1179,177 @@ mod tests {
 
     use super::*;
     use crate::{config::Config, db::connect};
+
+    async fn pay_to_actor(state: &AppState, payer: &str) -> ApiResult<PaymentRecord> {
+        let (_, Json(record)) = mark_paid(
+            State(state.clone()),
+            user(payer, "member"),
+            Json(MarkPaidRequest {
+                user_id: payer.into(),
+                received_by_user_id: "actor".into(),
+                note: None,
+            }),
+        )
+        .await?;
+        if record.status == "pending" {
+            confirm_payment(
+                State(state.clone()),
+                user("actor", "member"),
+                Path(record.id.clone()),
+            )
+            .await?;
+        }
+        Ok(record)
+    }
+
+    #[tokio::test]
+    async fn paying_the_amount_due_settles_kasse_money_in_hand() {
+        let state = state().await;
+        insert_consumption(&state, "cup", now_ts() - 10).await;
+        // Target kept 24.92 € of Pfand money that belongs to the Kasse.
+        insert_expense_for_user(&state, "pfand", "target", -2492, 1).await;
+        let Json(before) = my_payments(State(state.clone()), user("target", "member"))
+            .await
+            .unwrap();
+        assert_eq!(
+            amount_due_cents(before.unpaid_amount_cents, before.expense_balance_cents),
+            2542
+        );
+
+        let record = pay_to_actor(&state, "target").await.unwrap();
+
+        assert_eq!(record.amount_cents, 50);
+        assert_eq!(record.expense_settled_cents, 2492);
+        let Json(after) = my_payments(State(state.clone()), user("target", "member"))
+            .await
+            .unwrap();
+        assert_eq!(after.unpaid_amount_cents, 0);
+        assert_eq!(after.expense_balance_cents, 0);
+        // The recipient now holds all the cash they were handed.
+        assert_eq!(
+            user_expense_balance_cents(&state, "actor").await.unwrap(),
+            -2542
+        );
+        assert_eq!(
+            user_received_payment_total_cents(&state, "actor")
+                .await
+                .unwrap(),
+            2542
+        );
+        assert!(matches!(
+            pay_to_actor(&state, "target").await,
+            Err(ApiError::BadRequest(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn kasse_money_in_hand_can_be_settled_without_a_tab() {
+        let state = state().await;
+        insert_expense_for_user(&state, "pfand", "target", -2492, 1).await;
+
+        let record = pay_to_actor(&state, "target").await.unwrap();
+
+        assert_eq!((record.amount_cents, record.drink_count), (0, 0));
+        assert_eq!(record.expense_settled_cents, 2492);
+        assert_eq!(
+            user_expense_balance_cents(&state, "target").await.unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tab_offset_against_expenses_moves_no_money() {
+        let state = state().await;
+        insert_consumption(&state, "cup", now_ts() - 10).await;
+        // The Kasse owes target 10 € for beans, more than the 0.50 € tab.
+        insert_expense_for_user(&state, "beans", "target", 1000, 1).await;
+
+        let record = pay_to_actor(&state, "target").await.unwrap();
+
+        assert_eq!(record.amount_cents, 50);
+        assert_eq!(record.expense_settled_cents, -50);
+        assert_eq!(
+            user_expense_balance_cents(&state, "target").await.unwrap(),
+            950
+        );
+        assert_eq!(
+            user_expense_balance_cents(&state, "actor").await.unwrap(),
+            0
+        );
+        assert_eq!(
+            crate::expenses::chair_expense_balance_cents(&state)
+                .await
+                .unwrap(),
+            -950
+        );
+    }
+
+    /// Actor holds 20 € of Kasse money (target's payment) and drank a coffee.
+    async fn kasse_with_money_and_a_tab() -> AppState {
+        let mut state = state().await;
+        state.config.auto_payment_reminder = Some(crate::config::AutoPaymentReminderConfig {
+            payment_link_user_id: "actor".into(),
+            hour: 10,
+        });
+        sqlx::query(
+            "INSERT INTO payments
+             (id, user_id, received_by_user_id, amount_cents, drink_count, period_end_ts,
+              paid_at, created_at)
+             VALUES ('kasse-money', 'target', 'actor', 2000, 40, 1, 1, 1)",
+        )
+        .execute(&state.db)
+        .await
+        .unwrap();
+        insert_consumption_for_user(&state, "actor-cup", "actor", now_ts() - 10).await;
+        state
+    }
+
+    #[tokio::test]
+    async fn the_kasse_holder_only_owes_their_tab() {
+        let state = kasse_with_money_and_a_tab().await;
+        let Json(before) = my_payments(State(state.clone()), user("actor", "member"))
+            .await
+            .unwrap();
+        assert_eq!(before.expense_balance_cents, -2000);
+        assert_eq!(before.amount_due_cents, 50);
+
+        let record = pay_to_actor(&state, "actor").await.unwrap();
+
+        assert_eq!(record.status, "confirmed");
+        assert_eq!((record.amount_cents, record.expense_settled_cents), (50, 0));
+        let Json(after) = my_payments(State(state.clone()), user("actor", "member"))
+            .await
+            .unwrap();
+        assert_eq!(after.amount_due_cents, 0);
+        // Their coffee money went into the Kasse they hold.
+        assert_eq!(after.expense_balance_cents, -2050);
+        assert_eq!(
+            user_totals(&state, "actor")
+                .await
+                .unwrap()
+                .paid_amount_cents,
+            50
+        );
+    }
+
+    #[tokio::test]
+    async fn paying_yourself_does_not_settle_kasse_money_in_hand() {
+        let mut state = kasse_with_money_and_a_tab().await;
+        // Without a configured Kasse, actor's 20 € are due like anyone's.
+        state.config.auto_payment_reminder = None;
+        let Json(before) = my_payments(State(state.clone()), user("actor", "member"))
+            .await
+            .unwrap();
+        assert_eq!(before.amount_due_cents, 2050);
+
+        let record = pay_to_actor(&state, "actor").await.unwrap();
+
+        assert_eq!(record.expense_settled_cents, 0);
+        assert_eq!(
+            user_expense_balance_cents(&state, "actor").await.unwrap(),
+            -2050
+        );
+    }
 
     fn user(id: &str, user_type: &str) -> CurrentUser {
         CurrentUser {
@@ -1090,7 +1578,7 @@ mod tests {
         insert_consumption_for_user(&state, "guest-cup", "guest", now_ts() - 10).await;
 
         let (status, Json(record)) = mark_paid(
-            State(state),
+            State(state.clone()),
             user("guest", "guest"),
             Json(MarkPaidRequest {
                 user_id: "guest".into(),
@@ -1103,8 +1591,13 @@ mod tests {
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(record.amount_cents, 50);
+        assert_eq!(record.status, "pending");
+        // Announced once the recipient confirms they got the money.
+        let _ = confirm_payment(State(state), user("actor", "member"), Path(record.id))
+            .await
+            .unwrap();
         let request = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert!(request.contains("Guest marked their debt of 0.50 EUR as paid."));
+        assert!(request.contains("Guest paid their debt of 0.50 EUR."));
     }
 
     #[tokio::test]
@@ -1115,7 +1608,7 @@ mod tests {
         insert_consumption_for_user(&state, "guest-cup", "guest", now_ts() - 10).await;
 
         let (status, Json(record)) = mark_paid(
-            State(state),
+            State(state.clone()),
             user("guest", "guest"),
             Json(MarkPaidRequest {
                 user_id: "guest".into(),
@@ -1128,8 +1621,13 @@ mod tests {
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(record.amount_cents, 50);
+        assert_eq!(record.status, "pending");
+        // Announced once the recipient confirms they got the money.
+        let _ = confirm_payment(State(state), user("actor", "member"), Path(record.id))
+            .await
+            .unwrap();
         let request = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert!(request.contains("Guest marked their debt of 0.50 EUR as paid."));
+        assert!(request.contains("Guest paid their debt of 0.50 EUR."));
     }
 
     #[tokio::test]
@@ -1142,7 +1640,7 @@ mod tests {
         insert_consumption_for_user(&state, "guest-cup", "guest", now_ts() - 10).await;
 
         let (status, Json(record)) = mark_paid(
-            State(state),
+            State(state.clone()),
             user("guest", "guest"),
             Json(MarkPaidRequest {
                 user_id: "guest".into(),
@@ -1155,14 +1653,19 @@ mod tests {
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(record.amount_cents, 50);
+        assert_eq!(record.status, "pending");
+        // Announced once the recipient confirms they got the money.
+        let _ = confirm_payment(State(state), user("actor", "member"), Path(record.id))
+            .await
+            .unwrap();
         let mattermost_request = mattermost_receiver
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
         let matrix_request = matrix_receiver
             .recv_timeout(Duration::from_secs(2))
             .unwrap();
-        assert!(mattermost_request.contains("Guest marked their debt of 0.50 EUR as paid."));
-        assert!(matrix_request.contains("Guest marked their debt of 0.50 EUR as paid."));
+        assert!(mattermost_request.contains("Guest paid their debt of 0.50 EUR."));
+        assert!(matrix_request.contains("Guest paid their debt of 0.50 EUR."));
     }
 
     #[tokio::test]
@@ -1265,6 +1768,18 @@ mod tests {
             user_expense_total_cents(&state, "actor").await.unwrap(),
             5000
         );
+        // Not money in the recipient's hands until they confirm it.
+        assert_eq!(
+            user_expense_balance_cents(&state, "actor").await.unwrap(),
+            5000
+        );
+        let _ = confirm_payment(
+            State(state.clone()),
+            user("actor", "member"),
+            Path(record.id),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             user_expense_balance_cents(&state, "actor").await.unwrap(),
             4950
@@ -1775,5 +2290,126 @@ mod tests {
         )
         .await;
         assert!(matches!(result, Err(ApiError::Forbidden)));
+    }
+
+    async fn self_pay(state: &AppState, payer: &str) -> ApiResult<PaymentRecord> {
+        mark_paid(
+            State(state.clone()),
+            user(payer, "member"),
+            Json(MarkPaidRequest {
+                user_id: payer.into(),
+                received_by_user_id: "actor".into(),
+                note: None,
+            }),
+        )
+        .await
+        .map(|(_, Json(record))| record)
+    }
+
+    #[tokio::test]
+    async fn self_marked_payments_wait_for_the_recipient() {
+        let state = state().await;
+        insert_consumption(&state, "target-cup", now_ts() - 10).await;
+        let record = self_pay(&state, "target").await.unwrap();
+        assert_eq!(record.status, "pending");
+        // The tab is closed while it waits, and no second claim can pile up.
+        assert_eq!(
+            user_totals(&state, "target")
+                .await
+                .unwrap()
+                .unpaid_amount_cents,
+            0
+        );
+        insert_consumption(&state, "target-cup-2", now_ts() - 5).await;
+        assert!(matches!(
+            self_pay(&state, "target").await,
+            Err(ApiError::Conflict(_))
+        ));
+        // Only the named recipient can confirm.
+        assert!(matches!(
+            confirm_payment(
+                State(state.clone()),
+                user("target", "member"),
+                Path(record.id.clone())
+            )
+            .await,
+            Err(ApiError::Forbidden)
+        ));
+        let confirmed = confirm_payment(
+            State(state.clone()),
+            user("actor", "member"),
+            Path(record.id.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(confirmed.status, "confirmed");
+        assert!(matches!(
+            reject_payment(
+                State(state.clone()),
+                user("actor", "member"),
+                Path(record.id)
+            )
+            .await,
+            Err(ApiError::Conflict(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn rejecting_a_pending_payment_reopens_the_tab() {
+        let state = state().await;
+        insert_consumption(&state, "target-cup", now_ts() - 10).await;
+        let record = self_pay(&state, "target").await.unwrap();
+        assert_eq!(
+            reject_payment(
+                State(state.clone()),
+                user("actor", "member"),
+                Path(record.id)
+            )
+            .await
+            .unwrap(),
+            StatusCode::NO_CONTENT
+        );
+        let totals = user_totals(&state, "target").await.unwrap();
+        assert_eq!(totals.unpaid_amount_cents, 50);
+        assert_eq!(totals.unpaid_drink_count, 1);
+    }
+
+    #[tokio::test]
+    async fn recipients_marking_a_payment_confirm_it_directly() {
+        let state = state().await;
+        insert_consumption(&state, "target-cup", now_ts() - 10).await;
+        let (_, Json(record)) = mark_paid(
+            State(state.clone()),
+            user("actor", "member"),
+            Json(MarkPaidRequest {
+                user_id: "target".into(),
+                received_by_user_id: "actor".into(),
+                note: None,
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(record.status, "confirmed");
+    }
+
+    #[tokio::test]
+    async fn concurrent_payments_do_not_exhaust_the_pool() {
+        let state = state().await;
+        insert_consumption(&state, "target-cup", now_ts() - 10).await;
+        let started = std::time::Instant::now();
+        let attempts: Vec<_> = (0..8)
+            .map(|_| {
+                let state = state.clone();
+                tokio::spawn(async move { self_pay(&state, "target").await })
+            })
+            .collect();
+        let mut created = 0;
+        for attempt in attempts {
+            if attempt.await.unwrap().is_ok() {
+                created += 1;
+            }
+        }
+        assert_eq!(created, 1);
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 }

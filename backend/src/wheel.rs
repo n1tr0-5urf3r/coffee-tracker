@@ -325,7 +325,7 @@ pub(crate) async fn spin_wheel(
     let prize = roll(catalog::random_u64());
     let artwork_id = (prize == WheelPrize::OhNo)
         .then(|| SNAGGS_ARTWORK[(catalog::random_u64() % SNAGGS_ARTWORK.len() as u64) as usize]);
-    let spin = match record_spin(&state, &user, &id, input.paid, prize, artwork_id, now).await {
+    let spin = match record_spin(&state, &user, &id, input.paid, prize, artwork_id, now_ts).await {
         Ok(spin) => spin,
         // A concurrent retry with the same id won the insert: answer with its spin.
         Err(error) => match replay_spin(&state, &user, &id, now).await? {
@@ -428,13 +428,21 @@ async fn record_spin(
     paid: bool,
     prize: WheelPrize,
     artwork_id: Option<&str>,
-    now: i64,
+    clock: impl FnOnce() -> i64,
 ) -> ApiResult<WheelSpin> {
-    let tz = resolve_tz(&state.config.timezone);
-    let week = week_key(now, &tz);
     let id = id.to_string();
 
+    // Take the user's write lock (the same one a payment takes) before reading
+    // the clock, so a spin can never be stamped before a payment's cutoff but
+    // committed after it, which would leave it off every tab.
     let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE users SET updated_at = updated_at WHERE id = ?")
+        .bind(&user.id)
+        .execute(&mut *tx)
+        .await?;
+    let now = clock();
+    let tz = resolve_tz(&state.config.timezone);
+    let week = week_key(now, &tz);
     let attempts: &[(&str, i64, &'static str)] = if paid {
         &[("paid", SPIN_PRICE_CENTS, INSERT_PAID)]
     } else {
@@ -613,7 +621,8 @@ pub async fn free_drinks_available(state: &AppState, user_id: &str) -> ApiResult
 }
 
 /// Uses the user's oldest unused free drink on `consumption_id` when the
-/// beverage has a price. Returns whether a voucher was used. The drink then
+/// beverage has a price of at most a regular coffee. Returns whether a
+/// voucher was used. The drink then
 /// costs nothing and takes no stamp-card position.
 pub async fn redeem_free_drink(
     state: &AppState,
@@ -630,7 +639,15 @@ pub async fn redeem_free_drink(
              WHERE user_id = ?2 AND prize = 'free_drink' AND redeemed_consumption_id IS NULL
              ORDER BY spun_at, rowid LIMIT 1
          )
-         AND EXISTS (SELECT 1 FROM beverages WHERE id = ?3 AND price_cents > 0)",
+         -- Worth one regular coffee: pricier drinks are paid as usual and
+         -- the voucher waits for the next drink it covers.
+         AND EXISTS (
+             SELECT 1 FROM beverages
+             WHERE id = ?3 AND price_cents > 0
+               AND price_cents <= COALESCE(
+                   (SELECT price_cents FROM beverages WHERE id = 'coffee'), 50
+               )
+         )",
     )
     .bind(consumption_id)
     .bind(user_id)
@@ -642,7 +659,7 @@ pub async fn redeem_free_drink(
 
 /// Wheel charges booked in `[cutoff, until)` (the open tab).
 pub async fn unpaid_wheel_cents(
-    state: &AppState,
+    conn: &mut sqlx::SqliteConnection,
     user_id: &str,
     cutoff: i64,
     until: i64,
@@ -654,7 +671,7 @@ pub async fn unpaid_wheel_cents(
     .bind(user_id)
     .bind(cutoff)
     .bind(until)
-    .fetch_one(&state.db)
+    .fetch_one(conn)
     .await?;
     Ok(amount)
 }
@@ -962,7 +979,7 @@ mod flow_tests {
     ) -> ApiResult<WheelSpin> {
         let artwork = (prize == WheelPrize::OhNo).then_some(SNAGGS_ARTWORK[0]);
         let id = Uuid::new_v4().to_string();
-        record_spin(state, &member(user), &id, paid, prize, artwork, now).await
+        record_spin(state, &member(user), &id, paid, prize, artwork, move || now).await
     }
 
     async fn insert_drink(state: &AppState, id: &str, user: &str, at: i64) {
@@ -1113,6 +1130,23 @@ mod flow_tests {
             .await
             .unwrap();
         assert_eq!(tab.unpaid_amount_cents, 0);
+    }
+
+    #[tokio::test]
+    async fn free_drink_is_worth_one_regular_coffee() {
+        let state = state_with_users(&["alice"]).await;
+        let now = now_ts();
+        spin(&state, "alice", false, WheelPrize::FreeDrink, now - 100)
+            .await
+            .unwrap();
+        insert_drink(&state, "pricey", "alice", now - 50).await;
+        // `other` costs more than a coffee: paid as usual, voucher kept.
+        assert!(
+            !redeem_free_drink(&state, "alice", "pricey", "other")
+                .await
+                .unwrap()
+        );
+        assert_eq!(free_drinks_available(&state, "alice").await.unwrap(), 1);
     }
 
     #[tokio::test]
@@ -1287,7 +1321,7 @@ mod flow_tests {
                     true,
                     WheelPrize::Nothing,
                     None,
-                    now,
+                    move || now,
                 )
                 .await
             })
