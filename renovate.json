@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "local>kn-staff/renovate"
+  ],
+  "packageRules": [
+    {
+      "description": "One MR per ecosystem for non-major updates, so the Rust build behind the OpenAPI regeneration runs once instead of once per crate",
+      "matchManagers": [
+        "cargo"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "Rust dependencies (non-major)"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "npm dependencies (non-major)"
+    },
+    {
+      "description": "Crate updates (utoipa, serde, ...) can change the exported OpenAPI spec: rebuild openapi.json and schema.ts",
+      "matchManagers": [
+        "cargo"
+      ],
+      "postUpgradeTasks": {
+        "commands": [
+          "bash scripts/regen-openapi.sh"
+        ],
+        "fileFilters": [
+          "frontend/coffee-tracker/fixtures/openapi.json",
+          "frontend/coffee-tracker/src/api/schema.ts"
+        ],
+        "executionMode": "branch",
+        "installTools": {
+          "rust": {},
+          "node": {}
+        }
+      }
+    },
+    {
+      "description": "npm updates (openapi-typescript) can change schema.ts: regenerate it from the committed openapi.json",
+      "matchManagers": [
+        "npm"
+      ],
+      "postUpgradeTasks": {
+        "commands": [
+          "bash scripts/regen-openapi.sh --frontend-only"
+        ],
+        "fileFilters": [
+          "frontend/coffee-tracker/src/api/schema.ts"
+        ],
+        "executionMode": "branch",
+        "installTools": {
+          "node": {}
+        }
+      }
+    }
+  ]
+}

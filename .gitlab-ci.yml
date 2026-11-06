@@ -22,6 +22,9 @@ backend_verify:
   script:
     - cargo test
     - cargo build --release
+    # The committed OpenAPI spec must match the code (fix: scripts/regen-openapi.sh)
+    - cargo run --release --locked --quiet --bin openapi-export > /tmp/openapi.json
+    - diff -u ../frontend/coffee-tracker/fixtures/openapi.json /tmp/openapi.json
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH
@@ -41,6 +44,8 @@ frontend_verify:
     - npm run lint
     - npm run test
     - npm run build
+    # schema.ts must match fixtures/openapi.json (fix: scripts/regen-openapi.sh --frontend-only)
+    - cp src/api/schema.ts /tmp/schema.ts && npm run generate:api && diff -u /tmp/schema.ts src/api/schema.ts
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH

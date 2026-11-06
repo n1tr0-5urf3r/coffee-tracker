@@ -38,6 +38,7 @@ cd backend
 DATABASE_URL=sqlite://coffee-tracker.db cargo run        # server on :3124, Swagger at /swagger-ui
 cargo run --bin coffee-admin -- qr --machine-id main --base-url http://localhost:3124 --out machine-main.png
 cargo run --bin openapi-export                            # print OpenAPI JSON
+scripts/regen-openapi.sh   # openapi.json + schema.ts in one go; CI fails if stale, Renovate runs it on dep updates
 ```
 
 Frontend alone:
