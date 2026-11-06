@@ -424,6 +424,12 @@ mod tests {
         .unwrap();
         let drink = log(&state, "alice").await.unwrap();
         assert_eq!(beans(&state).await, 99.0);
+        // Push the stamp ahead so the cooldown is still running at the re-log
+        // below however slow the runner is (log + undo can take > 5 s on CI).
+        sqlx::query("UPDATE users SET last_logged_at = unixepoch() + 3600 WHERE id = 'alice'")
+            .execute(&state.db)
+            .await
+            .unwrap();
         undo(&state, "alice", &drink.id).await.unwrap();
         assert_eq!(beans(&state).await, 100.0);
         // Undoing does not reset the cooldown, so log + undo can't loop.
