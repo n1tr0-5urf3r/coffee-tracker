@@ -1,3 +1,13 @@
+# Avoid duplicate pipelines: while a branch has an open MR, only the MR pipeline runs
+# (otherwise every push to an MR branch, e.g. by Renovate, ran verify twice).
+# Pushes to the default branch still run the normal branch pipeline incl. docker_publish.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
 stages:
   - verify
   - deploy
@@ -10,7 +20,7 @@ variables:
 
 backend_verify:
   stage: verify
-  image: rust:1.96.1-trixie
+  image: rust:1.99.1-trixie
   cache:
     key: cargo-${CI_COMMIT_REF_SLUG}
     paths:
@@ -32,7 +42,7 @@ backend_verify:
 
 frontend_verify:
   stage: verify
-  image: node:22-trixie
+  image: node:26-trixie
   cache:
     key: npm-${CI_COMMIT_REF_SLUG}
     paths:
@@ -94,7 +104,7 @@ frontend_docker_publish:
 github_sync:
   stage: sync
   image:
-    name: alpine/git:2.49.1
+    name: alpine/git:v2.54.0
     entrypoint: [""]
   variables:
     GIT_STRATEGY: clone
