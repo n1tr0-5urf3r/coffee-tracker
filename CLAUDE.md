@@ -4,7 +4,7 @@ Guidance for working in this repository.
 
 ## What this is
 
-**Coffee Tracker** is a web app that replaces a team's paper coffee tally. Users log coffee/tea consumption and get a personal dashboard (caffeine curve, streaks, daily totals), an opt-in leaderboard with "coffee-twin" matching, achievements, a monthly "Stempelkarte" loyalty card (12 stamps, 13th drink free), earned lootboxes with unlockable cosmetics, a paid lucky wheel, automatic seasonal themes, a weekly machine-cleaning reward, stock tracking, and a staff-only Payments/Expenses page (shared tabs, PayPal links). Auth is OAuth (GitLab + Authentik/OIDC) gated by configurable groups, plus a guest login. Current version **1.6.2** (kept in sync between `backend/Cargo.toml` and `frontend/coffee-tracker/package.json`).
+**Coffee Tracker** is a web app that replaces a team's paper coffee tally. Users log coffee/tea consumption and get a personal dashboard (caffeine curve, streaks, daily totals), an opt-in leaderboard with "coffee-twin" matching, achievements, a monthly "Stempelkarte" loyalty card (12 stamps, 13th drink free), earned lootboxes with unlockable cosmetics, a paid lucky wheel, automatic seasonal themes, a weekly machine-cleaning reward, stock tracking, and a staff-only Payments/Expenses page (shared tabs, PayPal links). Auth is OAuth (GitLab + Authentik/OIDC) gated by configurable groups, plus a guest login. Current version **1.7.0** (kept in sync between `backend/Cargo.toml` and `frontend/coffee-tracker/package.json`).
 
 Default git branch is `master`. Commits follow Conventional Commits; `chore: bump version` marks releases.
 
@@ -50,7 +50,7 @@ npm run dev
 
 ## Backend (`backend/`)
 
-- **Stack:** axum 0.8, tokio, sqlx 0.8 (SQLite, runtime queries — no compile-time checking / no `sqlx-data.json`), tower-http, tower-cookies, reqwest (OAuth + webhooks), utoipa (OpenAPI), clap (admin CLI), chrono/chrono-tz.
+- **Stack:** axum 0.8, tokio, sqlx 0.9 (SQLite, runtime queries — no compile-time checking / no `sqlx-data.json`), tower-http, tower-cookies, reqwest (OAuth + webhooks), utoipa 6 (OpenAPI), clap (admin CLI), chrono/chrono-tz.
 - **Entry:** `src/main.rs` → `Config::from_env()` → `db::connect` → `build_app` (in `src/lib.rs`). `AppState { config, db: SqlitePool, http }` is the axum state.
 - **Modules under `src/`:**
   - `config.rs` — env parsing. `db.rs` — pool, `migrate!`, `seed_defaults`. `error.rs` — `ApiError`/`ApiResult` (JSON `{error}`, 500s masked).
@@ -62,7 +62,7 @@ npm run dev
   - `payments/` + `expenses.rs` — debt/payment/expense tracking. A payment marked by anyone other than its recipient is `pending` until the recipient confirms it (`POST /payments/{id}/confirm`) or rejects it (`DELETE /payments/{id}`, reopens the tab); pending payments close the tab but don't count as received money and earn no rewards; at most one pending per user. A payment covers the amount due (tab minus expense balance): `payments.expense_settled_cents` records the part that settles the payer's expense balance, and the recipient receives `amount_cents + expense_settled_cents`; rewards only look at the tab (`amount_cents`). The Kasse holder is the `AUTO_PAYMENT_REMINDER_LINK_USER_ID` user: Kasse money in their hands never counts as amount due, and paying yourself never settles Kasse money you hold (`payable_balance_cents`, `settleable_balance_cents`). The backend sends `amount_due_cents`; the frontend uses it rather than recomputing. `stock.rs` — stock items + auto-decrement + low-stock alerts. `notifications/` — Mattermost/Matrix webhooks. `version.rs`, `openapi/`.
 - **API:** everything under `/api/v1`. Key groups: `auth/*`, `me`, `machines`, `beverages`, `consumptions`, `stats/me/*`, `stats/global/*`, `achievements/me`, `stempelkarte/me`, `leaderboard`, `coffee-twins`, `payments/*`, `expenses`, `stock`, `version`. (Full list in Swagger UI.)
 - **Auth model:** session cookies, not JWT. Cookie `coffee_session` = random token; DB stores only `SHA256(session_secret : token)`. TTL 180 days, but provider (OAuth) sessions must be renewed after 30 days so group changes take effect, `HttpOnly`/`SameSite=Lax`/`Secure` on https. `CurrentUser` (axum `FromRequestParts`) = authenticated-only. Login is gated by `AUTH_ALLOWED_GROUPS`; membership in `AUTH_STAFF_GROUPS` grants the elevated `stock_manager` role. Guests use `coffee_guest` cookie + a 12-char recovery code (hashed).
-- **DB schema:** migrations in `backend/migrations/` (`202604280001_initial.sql` … `202605110003_payment_recipients.sql`). Core tables: `users`, `auth_identities`, `sessions`, `guest_identities`, `machines`, `beverages`, `consumptions`, `achievement_definitions`/`achievement_unlocks`, `payments`, `expense_entries`, `stock_items`.
+- **DB schema:** migrations in `backend/migrations/` (`202604280001_initial.sql` … `202611050006_simple_view.sql`). Core tables: `users`, `auth_identities`, `sessions`, `guest_identities`, `machines`, `beverages`, `consumptions`, `achievement_definitions`/`achievement_unlocks`, `payments`, `expense_entries`, `stock_items`.
 - **Business rules worth knowing:** prices are integer **cents**; caffeine uses exponential decay; streaks count only weekday "lab days" (Sat/Sun excluded) in the configured timezone; consumptions have a 5-second create-dedupe (`users.last_logged_at`, not reset by undo) and a 5-minute delete window; undo revokes the rewards earned since the drink and re-evaluates (`users.reward_epoch` makes stale reward writes no-ops), is refused once the drink is on a paid tab or a crate was opened since, and restores stock; stock auto-decrements per beverage and fires one webhook on crossing the low threshold. When `AUTO_PAYMENT_REMINDER_LINK_USER_ID` is set, `payments/scheduler.rs` sends the payment reminder (webhooks + email) on the last day of each month from `AUTO_PAYMENT_REMINDER_HOUR` (default 10) local time; `payment_reminder_runs` makes sure each month is sent at most once.
 - **Build/test:** `cargo build [--release]`, `cargo test`. Tests are inline `#[cfg(test)] mod tests` in nearly every module (many `#[tokio::test]` spinning up temp SQLite DBs); no separate `tests/` dir.
 - **Dockerfile:** multi-stage `rust:1.96.1-trixie` → `debian:trixie-slim`; `EXPOSE 3124`, `VOLUME /data`, `CMD ["coffee-tracker"]`.
@@ -71,13 +71,14 @@ npm run dev
 
 > The real app is one level down; the outer `frontend/` only holds a stub lockfile.
 
-- **Stack:** React 19 (function components + hooks), TypeScript 5.9 (strict, ESM), Vite 8, Tailwind CSS v4 (via `@tailwindcss/vite`, tokens in `src/index.css`, no `tailwind.config.js`), class-based dark mode.
+- **Stack:** React 19 (function components + hooks), TypeScript 5.9 (ESM; `strict` is not enabled in the tsconfigs), Vite 8, Tailwind CSS v4 (via `@tailwindcss/vite`, tokens in `src/index.css`, no `tailwind.config.js`), class-based dark mode.
 - **Key deps:** `@tanstack/react-query` (all server state — hooks in `src/api/queries.ts`; no Redux), `react-router-dom` v7, `recharts`, `framer-motion` + `canvas-confetti`, `lucide-react`, `idb` (offline queue), `clsx`+`tailwind-merge` (`cn()` in `src/lib/cn.ts`).
+- **TypeScript stays on 5.x:** `openapi-typescript` 7 only accepts TypeScript 5 as a peer, so TS 6 breaks `npm install`/`npm ci`; typescript-eslint 8 also caps TypeScript at `<6.1`.
 - **API layer (`src/api/`):** `client.ts` (typed `fetch` wrapper, `credentials: 'include'`, `ApiError`, `isBackendUnavailableError`), `queries.ts` (React Query hooks + `queryKeys`), `schema.ts` (**generated** from `fixtures/openapi.json` — do not hand-edit; run `npm run generate:api`). Base URL comes from runtime `API_BASE_URL`, with `VITE_API_BASE_URL` as a development fallback. A 401 dispatches a `coffee:unauthorized` window event.
 - **Routing (`src/App.tsx`):** `/login` public; everything else under `ProtectedRoute` → `AppShell`: `/` (LogPage, index), `/stempelkarte`, `/dashboard`, `/achievements`, `/leaderboard`, `/payments`, `/settings`, `/components` (dev gallery).
 - **Pages (`src/pages/`):** LoginPage (GitLab/Authentik OAuth + guest), LogPage (log a coffee, optimistic + IndexedDB offline queue), DashboardPage (Recharts stats), AchievementsPage (confetti on unlock), LeaderboardPage (rankings + coffee-twins), PaymentsPage (debts, mark-paid, PayPal links, expenses), SettingsPage (theme, guest recovery, stock).
 - **PWA-ish:** service worker `public/sw.js`; offline consumptions queued in IndexedDB (`lib/offlineQueue.ts`) and replayed via `hooks/useOfflineQueue.ts`.
-- **Scripts:** `npm run dev`, `npm run build` (`tsc -b && vite build`), `npm run preview`, `npm run lint` (eslint), `npm run test` (Vitest + jsdom), `npm run generate:api`.
+- **Scripts:** `npm run dev`, `npm run build` (`tsc -b && vite build`), `npm run preview`, `npm run lint` (eslint), `npm run test` (Vitest 5 + jsdom), `npm run generate:api`.
 - **Tests:** Vitest, mostly unit tests of pure helpers (`src/lib/*.test.ts`, `src/api/client.test.ts`, `src/pages/*.test.ts`, `AppFooter.test.tsx`).
 - `dist/` is build output and gitignored.
 - **Seasonal themes:** `lib/seasons.ts` (date → season, Easter calc) + `lib/seasonalTheme.tsx` (per-browser on/off in localStorage, `data-season` on `<html>`, `?season=<id>` preview). Seasons only add an accent and decor; the brand red never changes.
@@ -92,7 +93,7 @@ Key variables: `DATABASE_URL`, `BIND_ADDR`, `SESSION_SECRET`, `GITLAB_*` (OAuth)
 ## CI/CD (`.gitlab-ci.yml`)
 
 Three stages:
-- **verify** — `backend_verify` (`rust:1.88-bookworm`: `cargo test` + `cargo build --release`) and `frontend_verify` (`node:22-bookworm`: `npm ci` → lint, test, build). Run on MRs and branches.
+- **verify** — `backend_verify` (`rust:1.96.1-trixie`: `cargo test` + `cargo build --release`) and `frontend_verify` (`node:22-trixie`: `npm ci` → lint, test, build). Run on MRs and branches.
 - **deploy** — Kaniko jobs build/push the configured Docker Hub repositories (`:latest` + `:${CI_COMMIT_SHORT_SHA}`), default branch only.
 - **sync** — after a successful default-branch pipeline, publishes a clean snapshot commit to GitHub without exposing private GitLab history.
 

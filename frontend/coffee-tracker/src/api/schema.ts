@@ -825,7 +825,7 @@ export interface components {
             hint?: string | null;
             id: string;
             name: string;
-            progress?: null | components["schemas"]["AchievementProgress"];
+            progress?: components["schemas"]["AchievementProgress"] | null;
             unlocked: boolean;
             /** Format: int64 */
             unlocked_at?: number | null;
@@ -1110,7 +1110,7 @@ export interface components {
             paid_total_cents: number;
             /** Format: int64 */
             today_drinks: number;
-            top_drinker?: null | components["schemas"]["GlobalTopDrinker"];
+            top_drinker?: components["schemas"]["GlobalTopDrinker"] | null;
             /** Format: int64 */
             total_coffees: number;
             /** Format: int64 */
@@ -1256,7 +1256,7 @@ export interface components {
             paid_amount_cents: number;
             /** Format: int64 */
             paid_drink_count: number;
-            pending_payment?: null | components["schemas"]["PaymentRecord"];
+            pending_payment?: components["schemas"]["PaymentRecord"] | null;
             /** Format: int64 */
             received_payment_amount_cents: number;
             /** Format: int64 */
@@ -1271,7 +1271,7 @@ export interface components {
             user_id: string;
         };
         PaymentConfigResponse: {
-            auto_reminder?: null | components["schemas"]["AutoReminderInfo"];
+            auto_reminder?: components["schemas"]["AutoReminderInfo"] | null;
             email_reminders_configured: boolean;
             paypal_link?: string | null;
         };
@@ -1448,7 +1448,7 @@ export interface components {
              * @description 1-based index of this card within the month.
              */
             index: number;
-            reward?: null | components["schemas"]["Stamp"];
+            reward?: components["schemas"]["Stamp"] | null;
             stamps: components["schemas"]["Stamp"][];
         };
         StampCardResponse: {
