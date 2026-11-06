@@ -1,4 +1,4 @@
-import { animate, motion, useMotionValue, useTransform, useVelocity } from 'framer-motion'
+import { animate, motion, useMotionValue, useTransform, useVelocity } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CosmeticItem, RarityInfo } from '../api/client'
 import { cn } from '../lib/cn'

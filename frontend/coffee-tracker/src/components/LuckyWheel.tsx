@@ -5,7 +5,7 @@ import {
   useTransform,
   useVelocity,
   type AnimationPlaybackControls,
-} from 'framer-motion'
+} from 'motion/react'
 import { type PointerEvent, type Ref, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { WheelPrize } from '../api/client'
 import { cn } from '../lib/cn'

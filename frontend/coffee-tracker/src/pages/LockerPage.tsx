@@ -1,5 +1,5 @@
 import confetti from 'canvas-confetti'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'motion/react'
 import {
   Bean,
   CalendarCheck,

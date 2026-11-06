@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { motion } from 'motion/react'
 import { Gift, Stamp as StampIcon } from 'lucide-react'
 import type { Stamp } from '../api/client'
 import { BeverageIcon, stampLabel } from '../lib/beverageIcons'

@@ -73,7 +73,7 @@ npm run dev
 > The real app is one level down; the outer `frontend/` only holds a stub lockfile.
 
 - **Stack:** React 19 (function components + hooks), TypeScript 5.9 (ESM; `strict` is not enabled in the tsconfigs), Vite 8, Tailwind CSS v4 (via `@tailwindcss/vite`, tokens in `src/index.css`, no `tailwind.config.js`), class-based dark mode.
-- **Key deps:** `@tanstack/react-query` (all server state — hooks in `src/api/queries.ts`; no Redux), `react-router-dom` v7, `recharts`, `framer-motion` + `canvas-confetti`, `lucide-react`, `idb` (offline queue), `clsx`+`tailwind-merge` (`cn()` in `src/lib/cn.ts`).
+- **Key deps:** `@tanstack/react-query` (all server state — hooks in `src/api/queries.ts`; no Redux), `react-router-dom` v7, `recharts`, `motion` (imported from `motion/react`) + `canvas-confetti`, `lucide-react`, `idb` (offline queue), `clsx`+`tailwind-merge` (`cn()` in `src/lib/cn.ts`).
 - **TypeScript stays on 5.x:** `openapi-typescript` 7 only accepts TypeScript 5 as a peer, so TS 6 breaks `npm install`/`npm ci`; typescript-eslint 8 also caps TypeScript at `<6.1`.
 - **API layer (`src/api/`):** `client.ts` (typed `fetch` wrapper, `credentials: 'include'`, `ApiError`, `isBackendUnavailableError`), `queries.ts` (React Query hooks + `queryKeys`), `schema.ts` (**generated** from `fixtures/openapi.json` — do not hand-edit; run `npm run generate:api`). Base URL comes from runtime `API_BASE_URL`, with `VITE_API_BASE_URL` as a development fallback. A 401 dispatches a `coffee:unauthorized` window event.
 - **Routing (`src/App.tsx`):** `/login` public; everything else under `ProtectedRoute` → `AppShell`: `/` (LogPage, index), `/stempelkarte`, `/dashboard`, `/achievements`, `/leaderboard`, `/payments`, `/settings`, `/components` (dev gallery).

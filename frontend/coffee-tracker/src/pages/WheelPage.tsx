@@ -1,5 +1,5 @@
 import confetti from 'canvas-confetti'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'motion/react'
 import { Coffee, Coins, FerrisWheel, Gift, Ticket, TriangleAlert, Volume2, VolumeX } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
