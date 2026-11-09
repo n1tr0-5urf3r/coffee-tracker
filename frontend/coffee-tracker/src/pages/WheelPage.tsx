@@ -1,6 +1,6 @@
 import confetti from 'canvas-confetti'
 import { AnimatePresence, motion } from 'motion/react'
-import { Coffee, Coins, FerrisWheel, Gift, Ticket, TriangleAlert, Volume2, VolumeX } from 'lucide-react'
+import { Coffee, Coins, FerrisWheel, Gift, Ticket, TriangleAlert, Volume2, VolumeX, X } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -94,6 +94,8 @@ function Wheel({ status }: { status: WheelStatus }) {
   const [spin, setSpin] = useState<{ prize: WheelPrize; key: number } | null>(null)
   const [result, setResult] = useState<WheelSpinResponse | null>(null)
   const [revealed, setRevealed] = useState(true)
+  // Paid-spin count at which the gambling warning was closed; it returns after the next paid spin.
+  const [warningDismissedAt, setWarningDismissedAt] = useState<number | null>(null)
 
   // Leaving mid-spin still applies the result, so counts stay right.
   const pendingResult = useRef<WheelSpinResponse | null>(null)
@@ -203,9 +205,17 @@ function Wheel({ status }: { status: WheelStatus }) {
         </div>
       </PageHeader>
 
-      {showGamblingWarning(status.paid_spins_this_week) ? (
-        <GamblingWarning paidSpins={status.paid_spins_this_week} priceCents={status.price_cents} />
-      ) : null}
+      <AnimatePresence>
+        {showGamblingWarning(status.paid_spins_this_week) &&
+        warningDismissedAt !== status.paid_spins_this_week ? (
+          <GamblingWarning
+            key={status.paid_spins_this_week}
+            paidSpins={status.paid_spins_this_week}
+            priceCents={status.price_cents}
+            onDismiss={() => setWarningDismissedAt(status.paid_spins_this_week)}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Card className="min-w-0 overflow-hidden">
@@ -393,30 +403,53 @@ function Wheel({ status }: { status: WheelStatus }) {
   )
 }
 
-/** Shown once a player has bought several spins in one week. */
-function GamblingWarning({ paidSpins, priceCents }: { paidSpins: number; priceCents: number }) {
+/**
+ * Floating notice (styled like the Log page's undo pill) shown once a player has bought several
+ * spins in one week. Closing it hides it until the next paid spin.
+ */
+function GamblingWarning({
+  paidSpins,
+  priceCents,
+  onDismiss,
+}: {
+  paidSpins: number
+  priceCents: number
+  onDismiss: () => void
+}) {
   return (
-    <div
-      role="note"
-      className="mb-4 flex items-start gap-3 rounded-3xl border-2 border-amber-400/70 bg-amber-50 p-4 text-amber-950 dark:border-amber-300/40 dark:bg-amber-950/40 dark:text-amber-100"
-    >
-      <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
-      <div className="min-w-0 text-sm font-bold">
-        <p className="font-display text-base font-black">Glücksspiel kann süchtig machen.</p>
-        <p className="mt-1">
-          You bought {paidSpins} spins this week ({formatEuros(paidSpins * priceCents)} on your tab). It’s
-          just a game – take a break if it stops being fun. Help and advice:{' '}
-          <a
-            href="https://www.check-dein-spiel.de"
-            target="_blank"
-            rel="noreferrer"
-            className="underline underline-offset-2"
-          >
-            check-dein-spiel.de
-          </a>
-          .
-        </p>
-      </div>
+    <div className="pointer-events-none fixed inset-x-0 top-40 z-50 flex justify-center px-4 md:left-[15rem] md:right-4 md:top-44">
+      <motion.div
+        role="alert"
+        initial={{ opacity: 0, y: -10, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -10, scale: 0.96 }}
+        className="pointer-events-auto flex max-w-[min(32rem,calc(100vw-2rem))] items-start gap-3 rounded-3xl border-2 border-amber-400/80 bg-amber-50/95 py-3 pl-4 pr-2 text-amber-950 shadow-soft backdrop-blur dark:border-amber-300/40 dark:bg-amber-950/95 dark:text-amber-100"
+      >
+        <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+        <div className="min-w-0 text-xs font-bold">
+          <p className="font-display text-sm font-black">Glücksspiel kann süchtig machen.</p>
+          <p className="mt-0.5">
+            {paidSpins} spins bought this week ({formatEuros(paidSpins * priceCents)} on your tab). Take a
+            break if it stops being fun. Help:{' '}
+            <a
+              href="https://www.check-dein-spiel.de"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+            >
+              check-dein-spiel.de
+            </a>
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="grid size-8 shrink-0 place-items-center rounded-full hover:bg-amber-400/20"
+          aria-label="Close gambling warning"
+        >
+          <X className="size-4" />
+        </button>
+      </motion.div>
     </div>
   )
 }
