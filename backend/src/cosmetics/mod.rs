@@ -2,7 +2,7 @@
 //!
 //! Boxes are earned (never bought): one per unlocked achievement, per shopping
 //! trip (positive expense entry), per filled Stempelkarte and for the first
-//! machine cleaning of each week. Every earned box is a row in `lootbox_grants`
+//! machine chore of each day or week. Every earned box is a row in `lootbox_grants`
 //! keyed by its source, so syncing is idempotent and retroactive.
 //! Opening a box rolls a random cosmetic; duplicates turn into beans, which can
 //! be spent to craft a specific item. Cosmetics are purely visual.
@@ -137,7 +137,7 @@ pub struct LootboxSources {
     pub achievement: i64,
     pub shopping: i64,
     pub stamp_card: i64,
-    /// Weekly chores (cleaning, grounds, water, descaling).
+    /// Machine chores (weekly cleaning and descaling, daily grounds and water).
     pub cleaning: i64,
     pub daily: i64,
     pub streak: i64,

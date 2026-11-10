@@ -155,7 +155,7 @@ export const CRATE_SOURCE_LABELS: Record<string, string> = {
   achievement: 'Achievement',
   shopping: 'Shopping trip',
   stamp_card: 'Full Stempelkarte',
-  cleaning: 'Weekly chore',
+  cleaning: 'Machine chore',
   daily: 'Every 5th drinking day',
   streak: 'Streak bonus',
   advent: 'Advent calendar door',

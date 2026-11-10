@@ -369,7 +369,7 @@ export function LockerPage() {
               <SourceRow icon={<Stamp className="size-4" />} label="Full Stempelkarte" count={locker.sources.stamp_card} />
               <SourceRow icon={<HandCoins className="size-4" />} label="Paying your tab" count={locker.sources.payment} />
               <SourceRow icon={<ShoppingBasket className="size-4" />} label="Shopping for the team" count={locker.sources.shopping} />
-              <SourceRow icon={<WashingMachine className="size-4" />} label="Weekly machine chores" count={locker.sources.cleaning} />
+              <SourceRow icon={<WashingMachine className="size-4" />} label="Machine chores" count={locker.sources.cleaning} />
               <SourceRow icon={<TreePine className="size-4" />} label="Advent calendar (1–24 Dec)" count={locker.sources.advent} />
               {isMember ? (
                 <SourceRow icon={<FerrisWheel className="size-4" />} label="Lucky wheel prizes" count={locker.sources.wheel} />

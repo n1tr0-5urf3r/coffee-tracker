@@ -905,7 +905,7 @@ export interface components {
         ChoreLogResponse: {
             board: components["schemas"]["ChoresResponse"];
             chore: string;
-            /** @description Whether this entry earned the weekly lootbox. */
+            /** @description Whether this entry earned the chore's lootbox for the period. */
             rewarded: boolean;
             unlocked_achievements: components["schemas"]["AchievementEvent"][];
         };
@@ -921,12 +921,12 @@ export interface components {
             rewarded: boolean;
         };
         CleaningResponse: {
-            /** @description Whether this entry earned the weekly lootbox. */
+            /** @description Whether this entry earned the chore's lootbox for the period. */
             rewarded: boolean;
             status: components["schemas"]["CleaningStatus"];
             unlocked_achievements: components["schemas"]["AchievementEvent"][];
         };
-        /** @description State of one chore for the current week. */
+        /** @description State of one chore for its current reward period. */
         CleaningStatus: {
             chore: string;
             label: string;
@@ -935,9 +935,13 @@ export interface components {
              * @description Earliest time the current user may log this chore again.
              */
             next_allowed_at?: number | null;
+            /** @description Reward period of the chore: `day` or `week`. */
+            period: string;
+            /** @description Current period, e.g. `2026-11-10` (day) or `2026-W45` (week). */
+            period_key: string;
             /** @description Latest entries of this chore. */
             recent: components["schemas"]["CleaningEntry"][];
-            /** @description True while nobody has claimed this week's crate for the chore. */
+            /** @description True while nobody has claimed the current period's crate for the chore. */
             reward_available: boolean;
             /** Format: int64 */
             reward_claimed_at?: number | null;
@@ -1198,7 +1202,7 @@ export interface components {
             advent: number;
             /**
              * Format: int64
-             * @description Weekly chores (cleaning, grounds, water, descaling).
+             * @description Machine chores (weekly cleaning and descaling, daily grounds and water).
              */
             cleaning: number;
             /** Format: int64 */

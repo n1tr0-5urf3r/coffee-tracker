@@ -26,9 +26,15 @@ function unlockTime(timestamp: number, now: Date) {
   })
 }
 
+/** "today's" for daily chores, "this week's" for weekly ones. */
+function periodCrate(chore: CleaningStatus) {
+  return chore.period === 'day' ? "today's" : "this week's"
+}
+
 /**
- * Honour-system chores board. For each chore, the first member to do it in a
- * week wins a crate; everyone can still log it (and it counts for achievements).
+ * Honour-system chores board. For each chore, the first member to do it in its
+ * period (a day for grounds/water, a week otherwise) wins a crate; everyone can
+ * still log it (and it counts for achievements).
  */
 export function ChoresCard() {
   const { data: board, refetch, dataUpdatedAt } = useChores()
@@ -60,10 +66,10 @@ export function ChoresCard() {
           tone: 'success',
           title: data.rewarded ? `${chore.label}: +1 crate 🎁` : `${chore.label}: thanks!`,
           description: data.rewarded
-            ? "You claimed this week's crate for it. Open it in your Locker."
+            ? `You claimed ${periodCrate(chore)} crate for it. Open it in your Locker.`
             : isGuest
-              ? 'The machine thanks you. Weekly crates are for members only.'
-              : "This week's crate was already claimed, but it still counts for your achievements.",
+              ? 'The machine thanks you. Chore crates are for members only.'
+              : `No crate this time (${periodCrate(chore)} is taken, or you already won one), but it still counts for your achievements.`,
         })
         for (const achievement of data.unlocked_achievements) {
           pushToast({
@@ -91,8 +97,8 @@ export function ChoresCard() {
         <p className="font-display text-lg font-black">Coffee machine chores</p>
         <p className="text-xs font-bold text-berry-700 dark:text-rose-100">
           {isGuest
-            ? 'Thanks for helping! Weekly crates are for members only.'
-            : 'Honour system: the first member to do a chore each week wins a crate.'}
+            ? 'Thanks for helping! Chore crates are for members only.'
+            : 'Honour system: the first member to do a chore wins a crate, daily for grounds and water, weekly otherwise.'}
         </p>
       </div>
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -119,10 +125,10 @@ export function ChoresCard() {
                   {chore.reward_available ? (
                     <span className="inline-flex items-center gap-1">
                       <Gift className="size-3 text-primary dark:text-blush" aria-hidden="true" />
-                      Crate up for grabs
+                      {chore.period === 'day' ? 'Daily crate up for grabs' : 'Weekly crate up for grabs'}
                     </span>
                   ) : (
-                    `Claimed by ${chore.reward_claimed_by ?? 'someone'}`
+                    `${chore.period === 'day' ? 'Today' : 'This week'}: ${chore.reward_claimed_by ?? 'someone'}`
                   )}
                   {last ? ` · last ${formatUnixDate(last.cleaned_at)}` : ''}
                 </p>

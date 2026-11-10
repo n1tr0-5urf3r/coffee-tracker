@@ -1,8 +1,9 @@
 //! Trust-based chores board for the coffee machine (cleaning, emptying the
-//! grounds, refilling water, descaling). For every chore, the first member to
-//! do it in a local ISO week earns a lootbox; later entries are still recorded
-//! (and count towards achievements) but earn no box. Guests can log chores but
-//! never win the crate.
+//! grounds, refilling water, descaling). Every chore has a reward period: a
+//! local calendar day for the everyday ones (grounds, water), a local ISO week
+//! for the rest. The first member to do a chore in its period earns a lootbox;
+//! later entries are still recorded (and count towards achievements) but earn
+//! no box. Guests can log chores but never win the crate.
 
 use axum::{
     Json, Router,
@@ -10,7 +11,7 @@ use axum::{
     http::StatusCode,
     routing::{get, post},
 };
-use chrono::{Datelike, TimeZone, Utc};
+use chrono::{Datelike, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -29,12 +30,37 @@ use crate::{
 /// Minimum time between two entries of the same chore by the same person.
 const PER_USER_COOLDOWN_SECS: i64 = 12 * 60 * 60;
 
-/// (id, label) of every chore, in display order.
-pub const CHORES: [(&str, &str); 4] = [
-    ("clean", "Clean the machine"),
-    ("grounds", "Empty the grounds container"),
-    ("water", "Refill the water tank"),
-    ("descale", "Descale the machine"),
+/// How often a chore's crate can be won.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChorePeriod {
+    Day,
+    Week,
+}
+
+impl ChorePeriod {
+    fn as_str(self) -> &'static str {
+        match self {
+            ChorePeriod::Day => "day",
+            ChorePeriod::Week => "week",
+        }
+    }
+
+    /// Key of the period containing `timestamp`: `2026-11-10` for a day,
+    /// `2026-W46` for a week. Stored in `machine_cleanings.week_key`.
+    pub fn key(self, timestamp: i64, tz: &Tz) -> String {
+        match self {
+            ChorePeriod::Day => local_date(timestamp, tz).format("%Y-%m-%d").to_string(),
+            ChorePeriod::Week => week_key(timestamp, tz),
+        }
+    }
+}
+
+/// (id, label, reward period) of every chore, in display order.
+pub const CHORES: [(&str, &str, ChorePeriod); 4] = [
+    ("clean", "Clean the machine", ChorePeriod::Week),
+    ("grounds", "Empty the grounds container", ChorePeriod::Day),
+    ("water", "Refill the water tank", ChorePeriod::Day),
+    ("descale", "Descale the machine", ChorePeriod::Week),
 ];
 
 pub fn router() -> Router<AppState> {
@@ -54,14 +80,18 @@ pub struct CleaningEntry {
     pub rewarded: bool,
 }
 
-/// State of one chore for the current week.
+/// State of one chore for its current reward period.
 #[derive(Serialize, ToSchema)]
 pub struct CleaningStatus {
     pub chore: String,
     pub label: String,
     /// Current local ISO week, e.g. `2026-W45`.
     pub week: String,
-    /// True while nobody has claimed this week's crate for the chore.
+    /// Reward period of the chore: `day` or `week`.
+    pub period: String,
+    /// Current period, e.g. `2026-11-10` (day) or `2026-W45` (week).
+    pub period_key: String,
+    /// True while nobody has claimed the current period's crate for the chore.
     pub reward_available: bool,
     pub reward_claimed_by: Option<String>,
     pub reward_claimed_at: Option<i64>,
@@ -73,7 +103,7 @@ pub struct CleaningStatus {
 
 #[derive(Serialize, ToSchema)]
 pub struct CleaningResponse {
-    /// Whether this entry earned the weekly lootbox.
+    /// Whether this entry earned the chore's lootbox for the period.
     pub rewarded: bool,
     pub unlocked_achievements: Vec<AchievementEvent>,
     pub status: CleaningStatus,
@@ -88,37 +118,39 @@ pub struct ChoresResponse {
 #[derive(Serialize, ToSchema)]
 pub struct ChoreLogResponse {
     pub chore: String,
-    /// Whether this entry earned the weekly lootbox.
+    /// Whether this entry earned the chore's lootbox for the period.
     pub rewarded: bool,
     pub unlocked_achievements: Vec<AchievementEvent>,
     pub board: ChoresResponse,
 }
 
-pub fn week_key(timestamp: i64, tz: &Tz) -> String {
-    let date = Utc
-        .timestamp_opt(timestamp, 0)
+fn local_date(timestamp: i64, tz: &Tz) -> NaiveDate {
+    Utc.timestamp_opt(timestamp, 0)
         .single()
         .map(|dt| dt.with_timezone(tz).date_naive())
-        .unwrap_or_else(|| Utc::now().with_timezone(tz).date_naive());
-    let week = date.iso_week();
+        .unwrap_or_else(|| Utc::now().with_timezone(tz).date_naive())
+}
+
+pub fn week_key(timestamp: i64, tz: &Tz) -> String {
+    let week = local_date(timestamp, tz).iso_week();
     format!("{:04}-W{:02}", week.year(), week.week())
 }
 
-/// `lootbox_grants.source_ref` of a weekly chore crate. Cleaning keeps the
-/// plain week key it had before the chores board existed.
-pub fn chore_grant_ref(chore: &str, week: &str) -> String {
+/// `lootbox_grants.source_ref` of a chore crate. Cleaning keeps the plain
+/// week key it had before the chores board existed.
+pub fn chore_grant_ref(chore: &str, period_key: &str) -> String {
     if chore == "clean" {
-        week.to_string()
+        period_key.to_string()
     } else {
-        format!("{chore}:{week}")
+        format!("{chore}:{period_key}")
     }
 }
 
-fn chore_label(chore: &str) -> ApiResult<&'static str> {
+fn chore_info(chore: &str) -> ApiResult<(&'static str, ChorePeriod)> {
     CHORES
         .iter()
-        .find(|(id, _)| *id == chore)
-        .map(|(_, label)| *label)
+        .find(|(id, _, _)| *id == chore)
+        .map(|(_, label, period)| (*label, *period))
         .ok_or(ApiError::NotFound)
 }
 
@@ -200,26 +232,27 @@ pub(crate) async fn log_cleaning(
     ))
 }
 
-/// Records one chore entry and, if it is the first member entry of the week,
-/// grants that week's crate. Returns whether it was rewarded and new achievements.
+/// Records one chore entry and, if it is the first member entry of the chore's
+/// period, grants that period's crate. Returns whether it was rewarded and new
+/// achievements.
 async fn record_chore(
     state: &AppState,
     user: &CurrentUser,
     chore: &str,
     now: i64,
 ) -> ApiResult<(bool, Vec<AchievementEvent>)> {
-    chore_label(chore)?;
+    let (_, period) = chore_info(chore)?;
     let tz = resolve_tz(&state.config.timezone);
-    let week = week_key(now, &tz);
+    let period_key = period.key(now, &tz);
     let id = Uuid::new_v4().to_string();
-    // Guests can log chores, but only members can win the weekly crate.
+    // Guests can log chores, but only members can win the crate.
     let can_win = user.user_type == "member";
 
     let mut tx = state.db.begin().await?;
-    // One statement: the cooldown check and the weekly-reward check happen
-    // under the same write lock as the insert, so concurrent requests can't
-    // both pass them. A person wins at most one chore crate per week, so one
-    // early bird can't sweep the whole board.
+    // One statement: the cooldown check and the reward check happen under the
+    // same write lock as the insert, so concurrent requests can't both pass
+    // them. A person wins at most one chore crate per period (one weekly and
+    // one daily crate), so one early bird can't sweep the whole board.
     let inserted = sqlx::query(
         "INSERT INTO machine_cleanings (id, user_id, chore, cleaned_at, week_key, rewarded)
          SELECT ?, ?, ?, ?, ?,
@@ -239,12 +272,12 @@ async fn record_chore(
     .bind(&user.id)
     .bind(chore)
     .bind(now)
-    .bind(&week)
+    .bind(&period_key)
     .bind(can_win)
     .bind(chore)
-    .bind(&week)
+    .bind(&period_key)
     .bind(&user.id)
-    .bind(&week)
+    .bind(&period_key)
     .bind(&user.id)
     .bind(chore)
     .bind(now - PER_USER_COOLDOWN_SECS)
@@ -261,14 +294,14 @@ async fn record_chore(
             .fetch_one(&mut *tx)
             .await?;
     if rewarded {
-        // Same transaction: the week can't be marked as rewarded without the crate.
+        // Same transaction: the period can't be marked as rewarded without the crate.
         sqlx::query(
             "INSERT OR IGNORE INTO lootbox_grants (id, user_id, source, source_ref, granted_at)
              VALUES (?, ?, 'cleaning', ?, ?)",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(&user.id)
-        .bind(chore_grant_ref(chore, &week))
+        .bind(chore_grant_ref(chore, &period_key))
         .bind(now)
         .execute(&mut *tx)
         .await?;
@@ -295,7 +328,7 @@ async fn next_allowed_at(state: &AppState, user_id: &str, chore: &str) -> ApiRes
 async fn load_board(state: &AppState, user_id: &str, now: i64) -> ApiResult<ChoresResponse> {
     let tz = resolve_tz(&state.config.timezone);
     let mut chores = Vec::with_capacity(CHORES.len());
-    for (chore, _) in CHORES {
+    for (chore, _, _) in CHORES {
         chores.push(load_status(state, user_id, chore, now).await?);
     }
     Ok(ChoresResponse {
@@ -310,9 +343,9 @@ async fn load_status(
     chore: &str,
     now: i64,
 ) -> ApiResult<CleaningStatus> {
-    let label = chore_label(chore)?;
+    let (label, period) = chore_info(chore)?;
     let tz = resolve_tz(&state.config.timezone);
-    let week = week_key(now, &tz);
+    let period_key = period.key(now, &tz);
     // Names only for people who share them on the leaderboard.
     let claimed: Option<(String, i64)> = sqlx::query_as(
         "SELECT CASE WHEN u.user_type = 'member' AND u.leaderboard_opt_in = 1
@@ -323,7 +356,7 @@ async fn load_status(
          WHERE mc.chore = ? AND mc.week_key = ? AND mc.rewarded = 1",
     )
     .bind(chore)
-    .bind(&week)
+    .bind(&period_key)
     .fetch_optional(&state.db)
     .await?;
     let recent = sqlx::query_as::<_, (String, i64, bool)>(
@@ -354,7 +387,9 @@ async fn load_status(
     Ok(CleaningStatus {
         chore: chore.to_string(),
         label: label.to_string(),
-        week,
+        week: week_key(now, &tz),
+        period: period.as_str().to_string(),
+        period_key,
         reward_available: claimed.is_none(),
         reward_claimed_by: claimed.as_ref().map(|(name, _)| name.clone()),
         reward_claimed_at: claimed.map(|(_, cleaned_at)| cleaned_at),
@@ -391,9 +426,22 @@ mod tests {
     }
 
     #[test]
+    fn day_keys_follow_the_local_calendar_day() {
+        let tz: Tz = "Europe/Berlin".parse().unwrap();
+        // 00:10 Berlin is already the 10th although it is still the 9th in UTC.
+        let just_after_midnight = tz
+            .with_ymd_and_hms(2026, 11, 10, 0, 10, 0)
+            .unwrap()
+            .timestamp();
+        assert_eq!(ChorePeriod::Day.key(just_after_midnight, &tz), "2026-11-10");
+        assert_eq!(ChorePeriod::Week.key(just_after_midnight, &tz), "2026-W46");
+    }
+
+    #[test]
     fn cleaning_keeps_its_old_grant_ref() {
         assert_eq!(chore_grant_ref("clean", "2026-W45"), "2026-W45");
         assert_eq!(chore_grant_ref("descale", "2026-W45"), "descale:2026-W45");
+        assert_eq!(chore_grant_ref("water", "2026-11-10"), "water:2026-11-10");
     }
 }
 
@@ -447,7 +495,7 @@ mod flow_tests {
     }
 
     #[tokio::test]
-    async fn every_chore_has_its_own_weekly_crate_and_cooldown() {
+    async fn every_chore_has_its_own_crate_and_cooldown() {
         let state = state_with_users(&["alice", "bob"]).await;
         let log = |user: &str, chore: &str| {
             log_chore(State(state.clone()), member(user), Path(chore.into()))
@@ -455,22 +503,20 @@ mod flow_tests {
 
         let (_, clean) = log("alice", "clean").await.unwrap();
         assert!(clean.rewarded);
-        // Same person, different chore: no cooldown, but one crate per person
-        // and week, so this chore's crate stays up for grabs.
-        let (_, grounds) = log("alice", "grounds").await.unwrap();
-        assert!(!grounds.rewarded);
-        // Someone else takes it, and then has had their crate for the week.
-        assert!(log("bob", "grounds").await.unwrap().1.rewarded);
+        // Same person, different chore: no cooldown, and grounds is a daily
+        // chore, so it has its own crate next to the weekly one.
+        assert!(log("alice", "grounds").await.unwrap().1.rewarded);
+        // But one daily crate per person and day, so water stays up for grabs.
+        assert!(!log("alice", "water").await.unwrap().1.rewarded);
+        assert!(log("bob", "water").await.unwrap().1.rewarded);
+        // Bob has no weekly crate yet.
         let (_, descale) = log("bob", "descale").await.unwrap();
-        assert!(!descale.rewarded);
+        assert!(descale.rewarded);
         let board = &descale.board;
         assert_eq!(board.chores.len(), CHORES.len());
-        assert!(
-            board
-                .chores
-                .iter()
-                .any(|c| c.chore == "water" && c.reward_available)
-        );
+        assert!(board.chores.iter().all(|c| !c.reward_available));
+        let periods: Vec<_> = board.chores.iter().map(|c| c.period.as_str()).collect();
+        assert_eq!(periods, ["week", "day", "day", "week"]);
 
         // Cooldown is per chore.
         assert!(matches!(
@@ -482,14 +528,60 @@ mod flow_tests {
             ApiError::NotFound
         ));
 
-        // One crate each for the week.
         assert_eq!(
             load_locker(&state, "alice").await.unwrap().sources.cleaning,
-            1
+            2
         );
         assert_eq!(
             load_locker(&state, "bob").await.unwrap().sources.cleaning,
-            1
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn daily_chores_offer_a_new_crate_every_day() {
+        let state = state_with_users(&["alice"]).await;
+        let tz = resolve_tz(&state.config.timezone);
+        let monday = tz
+            .with_ymd_and_hms(2026, 11, 9, 9, 0, 0)
+            .unwrap()
+            .timestamp();
+        let tuesday = monday + 24 * 60 * 60;
+
+        assert!(
+            record_chore(&state, &member("alice"), "grounds", monday)
+                .await
+                .unwrap()
+                .0
+        );
+        assert!(
+            record_chore(&state, &member("alice"), "clean", monday)
+                .await
+                .unwrap()
+                .0
+        );
+        let board = load_board(&state, "alice", tuesday).await.unwrap();
+        let status = |chore: &str| board.chores.iter().find(|c| c.chore == chore).unwrap();
+        assert!(status("grounds").reward_available);
+        assert_eq!(status("grounds").period_key, "2026-11-10");
+        // The weekly crate stays claimed for the rest of the week.
+        assert!(!status("clean").reward_available);
+
+        assert!(
+            record_chore(&state, &member("alice"), "grounds", tuesday)
+                .await
+                .unwrap()
+                .0
+        );
+        assert!(
+            !record_chore(&state, &member("alice"), "clean", tuesday)
+                .await
+                .unwrap()
+                .0
+        );
+        assert_eq!(
+            load_locker(&state, "alice").await.unwrap().sources.cleaning,
+            3
         );
     }
 
