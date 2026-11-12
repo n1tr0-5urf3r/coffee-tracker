@@ -1,5 +1,6 @@
 //! Trust-based chores board for the coffee machine (cleaning, emptying the
-//! grounds, refilling water, descaling). Every chore has a reward period: a
+//! grounds, refilling water, descaling, "Tassen machen": taking the used cups
+//! to the dishwasher and bringing clean ones). Every chore has a reward period: a
 //! local calendar day for the everyday ones (grounds, water), a local ISO week
 //! for the rest. The first member to do a chore in its period earns a lootbox;
 //! later entries are still recorded (and count towards achievements) but earn
@@ -56,11 +57,13 @@ impl ChorePeriod {
 }
 
 /// (id, label, reward period) of every chore, in display order.
-pub const CHORES: [(&str, &str, ChorePeriod); 4] = [
+pub const CHORES: [(&str, &str, ChorePeriod); 5] = [
     ("clean", "Clean the machine", ChorePeriod::Week),
     ("grounds", "Empty the grounds container", ChorePeriod::Day),
     ("water", "Refill the water tank", ChorePeriod::Day),
     ("descale", "Descale the machine", ChorePeriod::Week),
+    // Take the used cups to the dishwasher and bring clean ones back.
+    ("cups", "Tassen machen", ChorePeriod::Week),
 ];
 
 pub fn router() -> Router<AppState> {
@@ -169,7 +172,7 @@ pub(crate) async fn chores_status(
 #[utoipa::path(
     post,
     path = "/api/v1/chores/{chore}",
-    params(("chore" = String, Path, description = "clean, grounds, water or descale")),
+    params(("chore" = String, Path, description = "clean, grounds, water, descale or cups")),
     responses(
         (status = 201, body = ChoreLogResponse),
         (status = 404, description = "Unknown chore"),
@@ -496,7 +499,7 @@ mod flow_tests {
 
     #[tokio::test]
     async fn every_chore_has_its_own_crate_and_cooldown() {
-        let state = state_with_users(&["alice", "bob"]).await;
+        let state = state_with_users(&["alice", "bob", "carol"]).await;
         let log = |user: &str, chore: &str| {
             log_chore(State(state.clone()), member(user), Path(chore.into()))
         };
@@ -512,11 +515,15 @@ mod flow_tests {
         // Bob has no weekly crate yet.
         let (_, descale) = log("bob", "descale").await.unwrap();
         assert!(descale.rewarded);
-        let board = &descale.board;
+        // Alice and Bob each have their weekly crate, so cups goes to Carol.
+        assert!(!log("alice", "cups").await.unwrap().1.rewarded);
+        let (_, cups) = log("carol", "cups").await.unwrap();
+        assert!(cups.rewarded);
+        let board = &cups.board;
         assert_eq!(board.chores.len(), CHORES.len());
         assert!(board.chores.iter().all(|c| !c.reward_available));
         let periods: Vec<_> = board.chores.iter().map(|c| c.period.as_str()).collect();
-        assert_eq!(periods, ["week", "day", "day", "week"]);
+        assert_eq!(periods, ["week", "day", "day", "week", "week"]);
 
         // Cooldown is per chore.
         assert!(matches!(

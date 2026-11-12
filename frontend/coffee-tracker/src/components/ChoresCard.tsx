@@ -1,4 +1,4 @@
-import { Droplets, Gift, Sparkles, Trash2, WashingMachine, type LucideIcon } from 'lucide-react'
+import { Coffee, Droplets, Gift, Sparkles, Trash2, WashingMachine, type LucideIcon } from 'lucide-react'
 import { useEffect } from 'react'
 import { ApiError, type CleaningStatus } from '../api/client'
 import { useChores, useLogChoreMutation, useMe } from '../api/queries'
@@ -13,6 +13,7 @@ const CHORE_ICONS: Record<string, LucideIcon> = {
   grounds: Trash2,
   water: Droplets,
   descale: Sparkles,
+  cups: Coffee,
 }
 
 /** "14:05" today, "Mi. 04:53" on another day (cooldowns can end tomorrow). */

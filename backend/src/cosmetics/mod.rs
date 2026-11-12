@@ -137,7 +137,7 @@ pub struct LootboxSources {
     pub achievement: i64,
     pub shopping: i64,
     pub stamp_card: i64,
-    /// Machine chores (weekly cleaning and descaling, daily grounds and water).
+    /// Machine chores (weekly cleaning, descaling and cups, daily grounds and water).
     pub cleaning: i64,
     pub daily: i64,
     pub streak: i64,

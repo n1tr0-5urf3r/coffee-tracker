@@ -1202,7 +1202,7 @@ export interface components {
             advent: number;
             /**
              * Format: int64
-             * @description Machine chores (weekly cleaning and descaling, daily grounds and water).
+             * @description Machine chores (weekly cleaning, descaling and cups, daily grounds and water).
              */
             cleaning: number;
             /** Format: int64 */
@@ -1877,7 +1877,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description clean, grounds, water or descale */
+                /** @description clean, grounds, water, descale or cups */
                 chore: string;
             };
             cookie?: never;
