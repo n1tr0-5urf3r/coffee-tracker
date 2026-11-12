@@ -20,7 +20,7 @@ variables:
 
 backend_verify:
   stage: verify
-  image: rust:1.99.1-trixie
+  image: rust:1.100.0-trixie
   cache:
     key: cargo-${CI_COMMIT_REF_SLUG}
     paths:

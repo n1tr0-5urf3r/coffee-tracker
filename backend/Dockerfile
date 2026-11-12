@@ -1,4 +1,4 @@
-FROM rust:1.99.1-trixie AS builder
+FROM rust:1.100.0-trixie AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY migrations ./migrations
