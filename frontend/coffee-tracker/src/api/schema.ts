@@ -1205,6 +1205,11 @@ export interface components {
              * @description Machine chores (weekly cleaning, descaling and cups, daily grounds and water).
              */
             cleaning: number;
+            /**
+             * Format: int64
+             * @description Days on which someone else drank within ten minutes of you.
+             */
+            coffee_break: number;
             /** Format: int64 */
             daily: number;
             /** Format: int64 */

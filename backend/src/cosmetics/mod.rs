@@ -1,8 +1,9 @@
 //! Lootboxes and unlockable cosmetics.
 //!
 //! Boxes are earned (never bought): one per unlocked achievement, per shopping
-//! trip (positive expense entry), per filled Stempelkarte and for the first
-//! machine chore of each day or week. Every earned box is a row in `lootbox_grants`
+//! trip (positive expense entry), per filled Stempelkarte, per drinking day,
+//! per coffee break with someone else and for the first machine chore of each
+//! day or week (plus streaks, milestones, paid tabs, Advent and the wheel). Every earned box is a row in `lootbox_grants`
 //! keyed by its source, so syncing is idempotent and retroactive.
 //! Opening a box rolls a random cosmetic; duplicates turn into beans, which can
 //! be spent to craft a specific item. Cosmetics are purely visual.
@@ -146,6 +147,8 @@ pub struct LootboxSources {
     pub payment: i64,
     /// Lucky wheel prizes.
     pub wheel: i64,
+    /// Days on which someone else drank within ten minutes of you.
+    pub coffee_break: i64,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -491,7 +494,9 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
     let existing: HashSet<(String, String)> = sqlx::query_as::<_, (String, String)>(
         "SELECT source, source_ref FROM lootbox_grants
          WHERE user_id = ?
-           AND source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone', 'payment')",
+           AND source IN (
+               'stamp_card', 'daily', 'streak', 'advent', 'milestone', 'payment', 'coffee_break'
+           )",
     )
     .bind(user_id)
     .fetch_all(&state.db)
@@ -557,6 +562,28 @@ pub async fn sync_grants(state: &AppState, user_id: &str) -> ApiResult<Vec<Strin
     }
     for (count, timestamp) in &activity.milestones {
         missing.push(("milestone", count.to_string(), *timestamp));
+    }
+
+    // Drinking together: the user's drinks with someone else's drink close by.
+    let shared_at: Vec<i64> = sqlx::query_as::<_, (i64,)>(
+        "SELECT DISTINCT mine.consumed_at
+         FROM consumptions mine
+         JOIN consumptions other
+           ON other.user_id != mine.user_id
+          AND other.consumed_at BETWEEN mine.consumed_at - ? AND mine.consumed_at + ?
+         WHERE mine.user_id = ? AND mine.consumed_at >= ?",
+    )
+    .bind(rewards::COFFEE_BREAK_WINDOW_SECS)
+    .bind(rewards::COFFEE_BREAK_WINDOW_SECS)
+    .bind(user_id)
+    .bind(onboarded_at)
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .map(|(timestamp,)| timestamp)
+    .collect();
+    for day in rewards::coffee_break_days(&shared_at, &tz, onboarded_at) {
+        missing.push(("coffee_break", day.to_string(), now));
     }
 
     for (source, source_ref, granted_at) in missing {
@@ -630,7 +657,7 @@ pub(crate) async fn revoke_grants_since(
         "DELETE FROM lootbox_grants
          WHERE user_id = ? AND granted_at >= ?
            AND (
-               source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone')
+               source IN ('stamp_card', 'daily', 'streak', 'advent', 'milestone', 'coffee_break')
                OR (source = 'achievement' AND source_ref NOT IN (
                    SELECT achievement_id FROM achievement_unlocks WHERE user_id = ?
                ))
@@ -713,6 +740,7 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
             "milestone" => sources.milestone = count,
             "payment" => sources.payment = count,
             "wheel" => sources.wheel = count,
+            "coffee_break" => sources.coffee_break = count,
             _ => {}
         }
     }
@@ -725,7 +753,8 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
         + sources.advent
         + sources.milestone
         + sources.payment
-        + sources.wheel;
+        + sources.wheel
+        + sources.coffee_break;
 
     let (boxes_opened,): (i64,) =
         sqlx::query_as("SELECT COUNT(*) FROM lootbox_openings WHERE user_id = ?")
@@ -1203,9 +1232,9 @@ mod tests {
         );
         let locker = load_locker(&state, "alice").await.unwrap();
 
-        assert_eq!(locker.sources.daily, 1); // the 5th active day
-        assert_eq!(locker.sources.streak, 1); // 5 lab days in a row
-        assert_eq!(locker.sources.milestone, 1); // the 25th drink
+        assert_eq!(locker.sources.daily, 5); // one per active day
+        assert_eq!(locker.sources.streak, 1); // 3 lab days in a row
+        assert_eq!(locker.sources.milestone, 2); // the 10th and 20th drink
         assert_eq!(locker.sources.stamp_card, 2); // 25 paid drinks in one month
         assert_eq!(locker.sources.payment, 1); // the 50 ct payment does not count
         assert_eq!(locker.sources.advent, 0);
@@ -1253,9 +1282,9 @@ mod tests {
         )
         .await
         .unwrap();
-        // One active day is not enough for an active-day crate (every 5th day).
+        // The first drink of the day earns the active-day crate.
         assert!(
-            !response
+            response
                 .crates_earned
                 .iter()
                 .any(|source| source == "daily")
@@ -1317,8 +1346,38 @@ mod tests {
         assert_eq!(locker.sources.achievement, 2);
         assert_eq!(locker.sources.shopping, 1);
         assert_eq!(locker.sources.stamp_card, 1);
-        assert_eq!(locker.sources.daily, 0); // all 12 coffees on one active day
-        assert_eq!(locker.boxes_available, 4);
+        assert_eq!(locker.sources.daily, 1); // all 12 coffees on one active day
+        assert_eq!(locker.sources.milestone, 1); // the 10th drink
+        assert_eq!(locker.boxes_available, 6);
+    }
+
+    #[tokio::test]
+    async fn drinking_together_earns_both_one_crate_per_day() {
+        let state = state_with_users(&["alice", "bob", "carol"]).await;
+        for user in ["alice", "bob", "carol"] {
+            ensure_onboarded(&state, user).await.unwrap();
+        }
+        let day = |d: u32, h: u32, m: u32| {
+            chrono_tz::Europe::Berlin
+                .with_ymd_and_hms(2027, 3, d, h, m, 0)
+                .unwrap()
+                .timestamp()
+        };
+        // Alice and Bob drink nine minutes apart, twice on Monday; Carol drinks
+        // 20 minutes after Alice on Tuesday, which is too late.
+        add_coffees(&state, "alice", 1, day(1, 9, 0)).await;
+        add_coffees(&state, "bob", 1, day(1, 9, 9)).await;
+        add_coffees(&state, "alice", 1, day(1, 14, 0)).await;
+        add_coffees(&state, "bob", 1, day(1, 14, 5)).await;
+        add_coffees(&state, "alice", 1, day(2, 9, 0)).await;
+        add_coffees(&state, "carol", 1, day(2, 9, 20)).await;
+
+        for (user, expected) in [("alice", 1), ("bob", 1), ("carol", 0)] {
+            sync_grants(&state, user).await.unwrap();
+            sync_grants(&state, user).await.unwrap();
+            let locker = load_locker(&state, user).await.unwrap();
+            assert_eq!(locker.sources.coffee_break, expected, "{user}");
+        }
     }
 
     #[tokio::test]

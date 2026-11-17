@@ -12,6 +12,7 @@ import {
   Milestone,
   TreePine,
   Lock,
+  Users,
   PackageOpen,
   ShoppingBasket,
   Sparkles,
@@ -362,9 +363,10 @@ export function LockerPage() {
           <Card>
             <p className="mb-3 font-display text-xl font-black">How to earn crates</p>
             <ul className="space-y-2 text-sm font-bold text-berry-700 dark:text-rose-100">
-              <SourceRow icon={<CalendarCheck className="size-4" />} label="Every 5th day you log a drink" count={locker.sources.daily} />
-              <SourceRow icon={<Flame className="size-4" />} label="Streak bonus every 5 lab days" count={locker.sources.streak} />
-              <SourceRow icon={<Milestone className="size-4" />} label="Every 25th drink" count={locker.sources.milestone} />
+              <SourceRow icon={<CalendarCheck className="size-4" />} label="Every day you log a drink" count={locker.sources.daily} />
+              <SourceRow icon={<Users className="size-4" />} label="Coffee break with someone (within 10 min)" count={locker.sources.coffee_break} />
+              <SourceRow icon={<Flame className="size-4" />} label="Streak bonus every 3 lab days" count={locker.sources.streak} />
+              <SourceRow icon={<Milestone className="size-4" />} label="Every 10th drink" count={locker.sources.milestone} />
               <SourceRow icon={<Trophy className="size-4" />} label="Achievement unlocked" count={locker.sources.achievement} />
               <SourceRow icon={<Stamp className="size-4" />} label="Full Stempelkarte" count={locker.sources.stamp_card} />
               <SourceRow icon={<HandCoins className="size-4" />} label="Paying your tab" count={locker.sources.payment} />

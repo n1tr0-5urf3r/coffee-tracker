@@ -87,9 +87,9 @@ describe('initials', () => {
 
 describe('describeCrates', () => {
   it('groups crate sources into a readable list', () => {
-    expect(describeCrates(['daily'])).toBe('Every 5th drinking day')
+    expect(describeCrates(['daily'])).toBe('Drinking day')
     expect(describeCrates(['daily', 'achievement', 'achievement', 'streak'])).toBe(
-      'Every 5th drinking day + 2× Achievement + Streak bonus',
+      'Drinking day + 2× Achievement + Streak bonus',
     )
     expect(describeCrates(['mystery'])).toBe('Crate')
   })

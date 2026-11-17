@@ -73,10 +73,10 @@ impl Rarity {
     /// Beans awarded when a lootbox drops an item the user already owns.
     pub fn duplicate_beans(self) -> i64 {
         match self {
-            Rarity::Common => 10,
-            Rarity::Rare => 25,
-            Rarity::Epic => 60,
-            Rarity::Legendary => 150,
+            Rarity::Common => 20,
+            Rarity::Rare => 50,
+            Rarity::Epic => 120,
+            Rarity::Legendary => 300,
         }
     }
 
