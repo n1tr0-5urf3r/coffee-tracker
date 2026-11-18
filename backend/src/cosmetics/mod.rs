@@ -1383,6 +1383,12 @@ mod tests {
     #[tokio::test]
     async fn opening_consumes_boxes_and_refuses_when_empty() {
         let state = state_with_users(&["alice"]).await;
+        // A legendary roll (~2 %) would unlock "Golden pull" and grant an extra
+        // crate, making the counts below random. Take it out of this test.
+        sqlx::query("DELETE FROM achievement_definitions WHERE id = 'golden_pull'")
+            .execute(&state.db)
+            .await
+            .unwrap();
         let error = open_lootbox(State(state.clone()), member("alice"))
             .await
             .err()
