@@ -115,6 +115,7 @@ All deployment-specific values live in `.env`; see [`.env.example`](.env.example
 | Integrations   | `MATTERMOST_WEBHOOK_URL`, `MATRIX_WEBHOOK_URL`, `PAYPAL_LINK`, `SMTP_*`                       |
 | Runtime        | `SESSION_SECRET`, `TIMEZONE`                                                                  |
 | Cosmetics      | `COSMETICS_PRIVATE_DIR` for optional private avatar artwork (see below)                       |
+| External API   | `EXTERNAL_API_TOKEN`, `EXTERNAL_API_ALLOWED_IPS`, `EXTERNAL_API_TRUSTED_PROXIES` (see below)  |
 
 OAuth callback URLs are:
 
@@ -122,6 +123,18 @@ OAuth callback URLs are:
 https://your-coffee-host.example/api/v1/auth/gitlab/callback
 https://your-coffee-host.example/api/v1/auth/authentik/callback
 ```
+
+### Read-only external API
+
+A trusted service such as a game server can read members' unlocked achievements, owned and equipped cosmetics, daily drink counts and logged drinks. It is off until `EXTERNAL_API_TOKEN` is set (at least 32 characters, e.g. `openssl rand -hex 32`; comma-separate several to rotate). Set `EXTERNAL_API_ALLOWED_IPS` to limit callers to certain IPs or CIDR ranges. If calls come through a reverse proxy, list the proxy in `EXTERNAL_API_TRUSTED_PROXIES` so the original address from `X-Forwarded-For` is checked. Users who turned on *Hide public achievement sharing* and guests are never exposed.
+
+```sh
+curl -H "Authorization: Bearer $EXTERNAL_API_TOKEN" "https://coffee.example/api/v1/external/users?provider=gitlab&subject=42"
+curl -H "Authorization: Bearer $EXTERNAL_API_TOKEN" "https://coffee.example/api/v1/external/users/<user-id>?days=30"
+curl -H "Authorization: Bearer $EXTERNAL_API_TOKEN" "https://coffee.example/api/v1/external/users/<user-id>/drinks?limit=100"
+```
+
+The full schema is in Swagger UI under the `external` tag.
 
 ### Private avatar artwork
 

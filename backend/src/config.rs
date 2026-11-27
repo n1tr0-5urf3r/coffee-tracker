@@ -1,6 +1,11 @@
-use std::{env, net::SocketAddr, time::Duration};
+use std::{
+    env,
+    net::{IpAddr, SocketAddr},
+    time::Duration,
+};
 
 use anyhow::{Context, bail};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SmtpSecurity {
@@ -20,6 +25,80 @@ pub struct SmtpConfig {
 pub struct AutoPaymentReminderConfig {
     pub payment_link_user_id: String,
     pub hour: u32,
+}
+
+/// Minimum length of an `EXTERNAL_API_TOKEN` entry, so tokens can't be guessed.
+pub const EXTERNAL_API_TOKEN_MIN_LEN: usize = 32;
+
+/// Read-only API for trusted services such as a game server (`/api/v1/external/*`).
+#[derive(Clone, PartialEq, Eq)]
+pub struct ExternalApiConfig {
+    /// SHA-256 digests of the accepted bearer tokens; the tokens themselves are
+    /// never kept in memory after startup.
+    pub token_digests: Vec<[u8; 32]>,
+    /// Client addresses allowed to call the API; empty means any address.
+    pub allowed_ips: Vec<IpCidr>,
+    /// Reverse proxies whose `X-Forwarded-For` header is believed.
+    pub trusted_proxies: Vec<IpCidr>,
+}
+
+impl std::fmt::Debug for ExternalApiConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExternalApiConfig")
+            .field("tokens", &self.token_digests.len())
+            .field("allowed_ips", &self.allowed_ips)
+            .field("trusted_proxies", &self.trusted_proxies)
+            .finish()
+    }
+}
+
+/// An IP address or CIDR range such as `10.0.0.5`, `10.0.0.0/24` or `fd00::/8`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IpCidr {
+    addr: IpAddr,
+    prefix: u8,
+}
+
+impl IpCidr {
+    pub fn parse(value: &str) -> anyhow::Result<Self> {
+        let value = value.trim();
+        let (addr, prefix) = match value.split_once('/') {
+            Some((addr, prefix)) => (addr, Some(prefix)),
+            None => (value, None),
+        };
+        let addr = addr
+            .parse::<IpAddr>()
+            .with_context(|| format!("'{value}' is not an IP address or CIDR range"))?
+            .to_canonical();
+        let max = if addr.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            Some(prefix) => prefix
+                .parse::<u8>()
+                .ok()
+                .filter(|prefix| *prefix <= max)
+                .with_context(|| format!("'{value}' has an invalid prefix length"))?,
+            None => max,
+        };
+        Ok(Self { addr, prefix })
+    }
+
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.addr, ip.to_canonical()) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u32::from(net) & mask == u32::from(ip) & mask
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                u128::from(net) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +129,8 @@ pub struct Config {
     /// Folder with private avatar artwork (team photos, stickers), served only
     /// to members through `/api/v1/cosmetics/artwork/{id}`. Never published.
     pub cosmetics_private_dir: String,
+    /// `None` disables `/api/v1/external/*` (it then answers 404).
+    pub external_api: Option<ExternalApiConfig>,
 }
 
 impl Config {
@@ -92,6 +173,11 @@ impl Config {
             optional_env("AUTO_PAYMENT_REMINDER_HOUR"),
         )?;
         let timezone = env::var("TIMEZONE").unwrap_or_else(|_| "Europe/Berlin".into());
+        let external_api = build_external_api_config(
+            optional_env("EXTERNAL_API_TOKEN"),
+            optional_env("EXTERNAL_API_ALLOWED_IPS"),
+            optional_env("EXTERNAL_API_TRUSTED_PROXIES"),
+        )?;
 
         Ok(Self {
             app_name,
@@ -119,6 +205,7 @@ impl Config {
             session_ttl: Duration::from_secs(60 * 60 * 24 * 180),
             cosmetics_private_dir: env::var("COSMETICS_PRIVATE_DIR")
                 .unwrap_or_else(|_| "../cosmetics_private".into()),
+            external_api,
         })
     }
 }
@@ -189,6 +276,47 @@ fn build_auto_payment_reminder_config(
     }))
 }
 
+fn build_external_api_config(
+    tokens: Option<String>,
+    allowed_ips: Option<String>,
+    trusted_proxies: Option<String>,
+) -> anyhow::Result<Option<ExternalApiConfig>> {
+    let Some(tokens) = tokens else {
+        if allowed_ips.is_some() || trusted_proxies.is_some() {
+            tracing::warn!("EXTERNAL_API_TOKEN is not set, so the external API stays disabled");
+        }
+        return Ok(None);
+    };
+    let tokens = parse_csv_env(tokens);
+    if tokens.is_empty() {
+        return Ok(None);
+    }
+    if tokens
+        .iter()
+        .any(|token| token.len() < EXTERNAL_API_TOKEN_MIN_LEN)
+    {
+        bail!(
+            "every EXTERNAL_API_TOKEN entry must be at least {EXTERNAL_API_TOKEN_MIN_LEN} characters \
+             (generate one with `openssl rand -hex 32`)"
+        );
+    }
+    let token_digests = tokens
+        .iter()
+        .map(|token| Sha256::digest(token.as_bytes()).into())
+        .collect();
+    let parse_ips = |name: &str, value: Option<String>| -> anyhow::Result<Vec<IpCidr>> {
+        parse_csv_env(value.unwrap_or_default())
+            .iter()
+            .map(|entry| IpCidr::parse(entry).with_context(|| format!("invalid {name}")))
+            .collect()
+    };
+    Ok(Some(ExternalApiConfig {
+        token_digests,
+        allowed_ips: parse_ips("EXTERNAL_API_ALLOWED_IPS", allowed_ips)?,
+        trusted_proxies: parse_ips("EXTERNAL_API_TRUSTED_PROXIES", trusted_proxies)?,
+    }))
+}
+
 fn optional_env(name: &str) -> Option<String> {
     env::var(name).ok().and_then(non_empty_trimmed)
 }
@@ -210,8 +338,8 @@ fn parse_csv_env(value: String) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        SmtpSecurity, build_auto_payment_reminder_config, build_smtp_config, non_empty_trimmed,
-        parse_csv_env,
+        IpCidr, SmtpSecurity, build_auto_payment_reminder_config, build_external_api_config,
+        build_smtp_config, non_empty_trimmed, parse_csv_env,
     };
 
     #[test]
@@ -310,5 +438,67 @@ mod tests {
         assert!(
             build_auto_payment_reminder_config(Some("staff".into()), Some("ten".into())).is_err()
         );
+    }
+
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn external_api_is_disabled_without_a_token() {
+        assert_eq!(build_external_api_config(None, None, None).unwrap(), None);
+        assert_eq!(
+            build_external_api_config(None, Some("10.0.0.5".into()), None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn external_api_keeps_only_token_digests_and_parses_ip_lists() {
+        let config = build_external_api_config(
+            Some(format!("{TOKEN}, {TOKEN}-rotated")),
+            Some("10.0.0.5, 192.168.0.0/16, fd00::/8".into()),
+            Some("172.16.0.0/12".into()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(config.token_digests.len(), 2);
+        assert_eq!(config.allowed_ips.len(), 3);
+        assert_eq!(config.trusted_proxies.len(), 1);
+        assert!(!format!("{config:?}").contains(TOKEN));
+    }
+
+    #[test]
+    fn external_api_rejects_short_tokens_and_bad_ip_lists() {
+        assert!(build_external_api_config(Some("short".into()), None, None).is_err());
+        assert!(build_external_api_config(Some(format!("{TOKEN},short")), None, None).is_err());
+        assert!(
+            build_external_api_config(Some(TOKEN.into()), Some("10.0.0.300".into()), None).is_err()
+        );
+        assert!(
+            build_external_api_config(Some(TOKEN.into()), None, Some("10.0.0.0/33".into()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn ip_cidr_matches_addresses_and_ranges() {
+        let single = IpCidr::parse("10.0.0.5").unwrap();
+        assert!(single.contains("10.0.0.5".parse().unwrap()));
+        assert!(!single.contains("10.0.0.6".parse().unwrap()));
+
+        let range = IpCidr::parse("192.168.0.0/16").unwrap();
+        assert!(range.contains("192.168.42.1".parse().unwrap()));
+        assert!(range.contains("::ffff:192.168.42.1".parse().unwrap()));
+        assert!(!range.contains("192.169.0.1".parse().unwrap()));
+        assert!(!range.contains("fd00::1".parse().unwrap()));
+
+        let v6 = IpCidr::parse("fd00::/8").unwrap();
+        assert!(v6.contains("fd12:3456::1".parse().unwrap()));
+        assert!(!v6.contains("fe80::1".parse().unwrap()));
+
+        let any = IpCidr::parse("0.0.0.0/0").unwrap();
+        assert!(any.contains("8.8.8.8".parse().unwrap()));
+
+        assert!(IpCidr::parse("not-an-ip").is_err());
+        assert!(IpCidr::parse("10.0.0.0/x").is_err());
     }
 }

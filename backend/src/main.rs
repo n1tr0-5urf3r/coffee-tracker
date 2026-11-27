@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use coffee_tracker::{build_app, config::Config, db::connect};
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -18,6 +20,11 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&config.bind_addr).await?;
 
     tracing::info!("listening on {}", config.bind_addr);
-    axum::serve(listener, app).await?;
+    // Peer addresses feed the external API's IP allowlist.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }

@@ -331,6 +331,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/external/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_users"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/external/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["user_profile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/external/users/{user_id}/drinks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["user_drinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/leaderboard": {
         parameters: {
             query?: never;
@@ -1025,6 +1073,12 @@ export interface components {
             stock_manager: boolean;
             user_type: string;
         };
+        DailyDrinks: {
+            /** Format: int64 */
+            count: number;
+            /** @description Local date (`YYYY-MM-DD`) in `timezone`. */
+            date: string;
+        };
         EmailPaymentReminderRequest: {
             payment_link_user_id: string;
             recipient_user_ids?: string[] | null;
@@ -1068,6 +1122,82 @@ export interface components {
         ExpensesResponse: {
             entries: components["schemas"]["ExpenseEntry"][];
             summaries: components["schemas"]["ExpenseSummary"][];
+        };
+        ExternalAchievement: {
+            description: string;
+            id: string;
+            name: string;
+            /** Format: int64 */
+            unlocked_at: number;
+        };
+        ExternalCosmetic: {
+            /** Format: int64 */
+            acquired_at: number;
+            id: string;
+            name: string;
+            rarity: components["schemas"]["Rarity"];
+            slot: components["schemas"]["Slot"];
+        };
+        ExternalDrink: {
+            beverage_id: string;
+            beverage_name: string;
+            /**
+             * Format: int64
+             * @description Unix seconds.
+             */
+            consumed_at: number;
+            id: string;
+            machine_id: string;
+        };
+        ExternalDrinkSummary: {
+            /** @description One entry per day, oldest first, ending today; days without drinks count 0. */
+            daily: components["schemas"]["DailyDrinks"][];
+            /** @description Timezone the dates are in. */
+            timezone: string;
+            /**
+             * Format: int64
+             * @description Drinks logged today (local time).
+             */
+            today: number;
+            /**
+             * Format: int64
+             * @description Every drink ever logged.
+             */
+            total: number;
+        };
+        ExternalDrinksResponse: {
+            /** @description Newest first. */
+            drinks: components["schemas"]["ExternalDrink"][];
+            /** @description More drinks match; fetch them with `until` set to the oldest `consumed_at` returned. */
+            has_more: boolean;
+        };
+        ExternalIdentity: {
+            /** @description Login provider, e.g. `gitlab` or `authentik`. */
+            provider: string;
+            /** @description The provider's stable user ID (GitLab user ID, OIDC `sub`). */
+            subject: string;
+        };
+        ExternalUser: {
+            display_name: string;
+            id: string;
+            identities: components["schemas"]["ExternalIdentity"][];
+        };
+        ExternalUserProfile: {
+            /** @description Unlocked achievements, oldest unlock first. */
+            achievements: components["schemas"]["ExternalAchievement"][];
+            /** @description Owned cosmetics, oldest first. */
+            cosmetics: components["schemas"]["ExternalCosmetic"][];
+            drinks: components["schemas"]["ExternalDrinkSummary"];
+            equipped: components["schemas"]["EquippedCosmetics"];
+            /**
+             * Format: int64
+             * @description Unix seconds when this snapshot was taken.
+             */
+            generated_at: number;
+            user: components["schemas"]["ExternalUser"];
+        };
+        ExternalUsersResponse: {
+            users: components["schemas"]["ExternalUser"][];
         };
         GlobalBeverageResponse: {
             beverages: components["schemas"]["BeverageSummary"][];
@@ -2174,6 +2304,163 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ExpenseEntry"];
                 };
+            };
+        };
+    };
+    list_users: {
+        parameters: {
+            query?: {
+                /** @description Only the user with this email address (case-insensitive). */
+                email?: string;
+                /** @description Only the user linked to this login provider (`gitlab`, `authentik`); needs `subject`. */
+                provider?: string;
+                /** @description The provider's user ID; needs `provider`. */
+                subject?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalUsersResponse"];
+                };
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller address not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description External API disabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    user_profile: {
+        parameters: {
+            query?: {
+                /** @description Number of days in `drinks.daily`, including today (1–366, default 30). */
+                days?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Coffee Tracker user ID */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalUserProfile"];
+                };
+            };
+            /** @description Invalid `days` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller address not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown user, guest, opted out, or external API disabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    user_drinks: {
+        parameters: {
+            query?: {
+                /** @description Only drinks at or after this Unix timestamp. */
+                since?: number;
+                /** @description Only drinks before this Unix timestamp (exclusive). */
+                until?: number;
+                /** @description Maximum number of drinks (1–1000, default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Coffee Tracker user ID */
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDrinksResponse"];
+                };
+            };
+            /** @description Invalid `limit` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing or invalid token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller address not allowed */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown user, guest, opted out, or external API disabled */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

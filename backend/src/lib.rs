@@ -8,6 +8,7 @@ pub mod cosmetics;
 pub mod db;
 pub mod error;
 pub mod expenses;
+pub mod external;
 pub mod loyalty;
 pub mod notifications;
 pub mod openapi;
@@ -63,6 +64,7 @@ pub async fn build_app(config: Config, db: SqlitePool) -> anyhow::Result<Router>
         .merge(social::router())
         .merge(payments::router())
         .merge(expenses::router())
+        .merge(external::router())
         .merge(stock::router())
         .merge(version::router())
         .merge(wheel::router());

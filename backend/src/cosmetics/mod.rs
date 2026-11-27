@@ -779,29 +779,7 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
     .into_iter()
     .collect();
 
-    let equipped_rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT slot, item_id FROM user_equipped_cosmetics WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_all(&state.db)
-            .await?;
-    let mut equipped = EquippedCosmetics::default();
-    let mut equipped_ids = HashSet::new();
-    for (slot, item_id) in equipped_rows {
-        let Some(item) = catalog::find(&item_id).filter(|item| item.slot.as_str() == slot) else {
-            continue;
-        };
-        equipped_ids.insert(item.id);
-        let target = match item.slot {
-            Slot::Frame => &mut equipped.frame,
-            Slot::Avatar => &mut equipped.avatar,
-            Slot::Cup => &mut equipped.cup,
-            Slot::Stamp => &mut equipped.stamp,
-            Slot::Title => &mut equipped.title,
-            Slot::Skin => &mut equipped.skin,
-            Slot::Collectible => continue,
-        };
-        *target = Some(item.id.to_string());
-    }
+    let (equipped, equipped_ids) = load_equipped(state, user_id).await?;
 
     let member = is_member_id(state, user_id).await?;
     let items = CATALOG
@@ -826,6 +804,37 @@ pub async fn load_locker(state: &AppState, user_id: &str) -> ApiResult<LockerRes
         items,
         rarities: rarity_table(),
     })
+}
+
+/// The items a user has equipped, per slot, plus the set of their IDs.
+pub(crate) async fn load_equipped(
+    state: &AppState,
+    user_id: &str,
+) -> ApiResult<(EquippedCosmetics, HashSet<&'static str>)> {
+    let equipped_rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT slot, item_id FROM user_equipped_cosmetics WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_all(&state.db)
+            .await?;
+    let mut equipped = EquippedCosmetics::default();
+    let mut equipped_ids = HashSet::new();
+    for (slot, item_id) in equipped_rows {
+        let Some(item) = catalog::find(&item_id).filter(|item| item.slot.as_str() == slot) else {
+            continue;
+        };
+        equipped_ids.insert(item.id);
+        let target = match item.slot {
+            Slot::Frame => &mut equipped.frame,
+            Slot::Avatar => &mut equipped.avatar,
+            Slot::Cup => &mut equipped.cup,
+            Slot::Stamp => &mut equipped.stamp,
+            Slot::Title => &mut equipped.title,
+            Slot::Skin => &mut equipped.skin,
+            Slot::Collectible => continue,
+        };
+        *target = Some(item.id.to_string());
+    }
+    Ok((equipped, equipped_ids))
 }
 
 fn to_item(item: &CosmeticDef, acquired_at: Option<i64>, equipped: bool) -> CosmeticItem {
@@ -958,6 +967,7 @@ pub(crate) mod test_support {
                 timezone: "Europe/Berlin".into(),
                 session_ttl: std::time::Duration::from_secs(60),
                 cosmetics_private_dir: "../cosmetics_private".into(),
+                external_api: None,
             },
             db,
             http: reqwest::Client::new(),

@@ -1,10 +1,13 @@
 use axum::Router;
-use utoipa::OpenApi;
+use utoipa::{
+    Modify, OpenApi,
+    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::{
-    AppState, achievements, auth, catalog, cleaning, consumptions, cosmetics, expenses, loyalty,
-    payments, social, stats, stock, version, wheel,
+    AppState, achievements, auth, catalog, cleaning, consumptions, cosmetics, expenses, external,
+    loyalty, payments, social, stats, stock, version, wheel,
 };
 
 pub fn router() -> Router<AppState> {
@@ -66,6 +69,9 @@ pub fn openapi_json() -> String {
         payments::list_payment_recipients,
         expenses::list_expenses,
         expenses::create_expense,
+        external::list_users,
+        external::user_profile,
+        external::user_drinks,
         stock::list_stock,
         stock::update_stock,
         version::version,
@@ -156,6 +162,16 @@ pub fn openapi_json() -> String {
             expenses::ExpenseSummary,
             expenses::ExpensesResponse,
             expenses::CreateExpenseRequest,
+            external::ExternalIdentity,
+            external::ExternalUser,
+            external::ExternalUsersResponse,
+            external::ExternalAchievement,
+            external::ExternalCosmetic,
+            external::DailyDrinks,
+            external::ExternalDrinkSummary,
+            external::ExternalUserProfile,
+            external::ExternalDrink,
+            external::ExternalDrinksResponse,
             stock::StockItem,
             stock::StockResponse,
             stock::UpdateStockRequest,
@@ -172,7 +188,26 @@ pub fn openapi_json() -> String {
         )
     ),
     tags(
-        (name = "coffee-tracker", description = "Coffee Tracker backend API")
-    )
+        (name = "coffee-tracker", description = "Coffee Tracker backend API"),
+        (name = "external", description = "Read-only API for trusted services (service token, optional IP allowlist)")
+    ),
+    modifiers(&ExternalTokenSecurity)
 )]
 struct ApiDoc;
+
+struct ExternalTokenSecurity;
+
+impl Modify for ExternalTokenSecurity {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme(
+            "external_token",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .description(Some("A token from the server's EXTERNAL_API_TOKEN setting"))
+                    .build(),
+            ),
+        );
+    }
+}

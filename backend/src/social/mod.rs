@@ -619,6 +619,7 @@ mod tests {
                 timezone: "Europe/Berlin".into(),
                 session_ttl: std::time::Duration::from_secs(60),
                 cosmetics_private_dir: "../cosmetics_private".into(),
+                external_api: None,
             },
             db,
             http: reqwest::Client::new(),
